@@ -1,0 +1,35 @@
+# Configuration & Inputs
+numt_config.yaml
+Pipeline/numt_config.yaml
+sample_sheet.tsv
+Pipeline/sample_sheet.tsv
+
+# Snakemake specific
+.snakemake/
+
+# Logs
+logs/
+Pipeline/logs/
+*.log
+*.err
+*.out
+
+# Outputs
+Dinumt_output/
+metadata/
+Donor_Validation/
+Population_Catalog/
+scratch/
+Pipeline/scratch/
+*.bam
+*.vcf
+*.cram
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
