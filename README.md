@@ -87,7 +87,10 @@ List the donors to process. The file must be a tab-separated values (TSV) file.
 
 ### 2. Execution
 
-Submit the unified Snakemake orchestrator. The `run_numt_pipeline.sh` script automatically reads `numt_config.yaml` and launches a lightweight orchestrator job, which in turn manages all sub-jobs on the LSF cluster via Docker.
+The pipeline supports two modes of execution: **Cluster Mode (LSF)** and **Local Mode (Standalone Server)**.
+
+#### Option A: WashU RIS Cluster (LSF)
+If you are on the WashU RIS cluster, submit the unified Snakemake orchestrator. It will run in the background and spawn LSF sub-jobs automatically:
 
 ```bash
 # Run the full end-to-end pipeline (Stages 0, 1, and 2)
@@ -95,10 +98,19 @@ bash Pipeline/run_numt_pipeline.sh
 
 # Run only Stage 0 (Discovery)
 bash Pipeline/run_numt_pipeline.sh --until all_discovery
-
-# Run only Stage 0 and Stage 1 (Validation)
-bash Pipeline/run_numt_pipeline.sh --until all_validation
 ```
+
+#### Option B: Local Machine / Standalone Server
+If you are running on a local workstation, a powerful server, or a Mac, you do not need LSF. You can run the entire pipeline directly via Docker using your local CPU cores.
+
+```bash
+# Run the full pipeline locally
+bash Pipeline/run_local.sh
+
+# Run only Stage 0 locally
+bash Pipeline/run_local.sh --until all_discovery
+```
+*Note: If your data is located on custom drives (e.g., `/mnt/data`), you may need to open `run_local.sh` and add a `-v /mnt/data:/mnt/data` volume mount to the Docker command.*
 
 ### 3. Monitoring
 
