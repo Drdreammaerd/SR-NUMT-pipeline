@@ -76,6 +76,7 @@ List the donors to process. The file must be a tab-separated values (TSV) file.
 |----------|--------|----------|------|
 | `HG002` | `GIAB` | `/path/to/HG002/bams_300x/HG002.bam` | `FAMILY_BASED` |
 | `SMHT001`| `SMAHT`| `/path/to/ProductionData/SMHT001` | `SMAHT_BASED` |
+| `HapMap` | `HapMap_Mix` | `/path/to/washu_short_read/HapMap_Mixture_hg38.bam` | `INDIVIDUAL_BASED` |
 
 - **SampleID**: Unique identifier for the donor.
 - **Cohort**: Used for grouping in the final population matrix.
