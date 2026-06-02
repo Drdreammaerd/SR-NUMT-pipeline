@@ -16,7 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/numt_config.yaml"
+CONFIG_FILE="${PWD}/numt_config.yaml"
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then
     echo "============================================================"

@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SMK_FILE="${SCRIPT_DIR}/numt_pipeline.smk"
 
 SNAKEMAKE_ARGS=()
-CONFIG_FILE="${SCRIPT_DIR}/numt_config.yaml"
+CONFIG_FILE="${PWD}/numt_config.yaml"
 
 # Default LSF parameters
 LSF_QUEUE="general"
