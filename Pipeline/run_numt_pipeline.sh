@@ -47,6 +47,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "============================================================"
+    echo " ERROR: Configuration file not found!"
+    echo " Expected: ${CONFIG_FILE}"
+    echo " Please copy 'numt_config_template.yaml' to 'numt_config.yaml'"
+    echo " and edit it with your parameters before running."
+    echo "============================================================"
+    exit 1
+fi
+
 CONFIG_BASENAME=$(basename "${CONFIG_FILE}" .yaml)
 # Extract output_base from config, default to SCRIPT_DIR if not found
 OUTPUT_BASE=$(grep -E "^output_base:" "${CONFIG_FILE}" | awk '{print $2}' | tr -d '"' | tr -d "'" || true)

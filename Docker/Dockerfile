@@ -107,7 +107,7 @@ COPY Pipeline/3_build_population_catalog.py /opt/numt-pipeline/
 
 # Snakemake workflow
 COPY Pipeline/numt_pipeline.smk /opt/numt-pipeline/
-COPY Pipeline/numt_config.yaml  /opt/numt-pipeline/
+COPY Pipeline/numt_config_template.yaml  /opt/numt-pipeline/numt_config.yaml
 
 # Fix permissions so LSF user can read and execute scripts
 RUN chmod -R a+rX /opt/numt-pipeline
