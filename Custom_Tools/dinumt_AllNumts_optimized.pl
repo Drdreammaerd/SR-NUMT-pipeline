@@ -373,14 +373,21 @@ HEADER
 
 sub calcGl {
     my ( $m, $g, $k, $l, $e ) = @_;
-    print "in calcGl():\n"         if $opts{verbose};
-    print "\t$m\t$g\t$k\t$l\t$e\n" if $opts{verbose};
+    # Prevent exact 0 or 1 for $e to avoid log(0) and die exceptions
+    if ( $e <= 1e-10 ) { $e = 1e-10; }
+    if ( $e >= 0.9999999999 ) { $e = 0.9999999999; }
+    
     if ( 1 / $m**$k <= 0 ) { die "problem in calcGL 1, \t$m\t$g\t$k\t$l\t$e\n"; }
     my $gl = log10( 1 / $m**$k );
-    if ( ( ( $m - $g ) * $e ) + ( ( 1 - $e ) * $g ) <= 0 ) { die "problem in calcGL 2, \t$m\t$g\t$k\t$l\t$e\n"; }
-    $gl += log10( ( ( $m - $g ) * $e ) + ( ( 1 - $e ) * $g ) ) for 1 .. $l;
-    if ( ( $m - $g ) * ( 1 - $e ) + ( $g * $e ) <= 0 ) { die "problem in calcGL 3, \t$m\t$g\t$k\t$l\t$e\n"; }
-    $gl += log10( ( $m - $g ) * ( 1 - $e ) + ( $g * $e ) ) for ( $l + 1 ) .. $k;
+    
+    my $term1 = ( ( $m - $g ) * $e ) + ( ( 1 - $e ) * $g );
+    if ( $term1 <= 0 ) { $term1 = 1e-10; }
+    $gl += log10( $term1 ) for 1 .. $l;
+    
+    my $term2 = ( $m - $g ) * ( 1 - $e ) + ( $g * $e );
+    if ( $term2 <= 0 ) { $term2 = 1e-10; }
+    $gl += log10( $term2 ) for ( $l + 1 ) .. $k;
+    
     return $gl;
 }
 

@@ -28,7 +28,7 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
     exit 1
 fi
 
-DOCKER_IMAGE="dreammaerd/numt-pipeline:v1.2"
+DOCKER_IMAGE="dreammaerd/numt-pipeline:v1.3"
 
 # Detect available CPU cores (Linux / Mac)
 CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)

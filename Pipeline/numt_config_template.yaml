@@ -16,7 +16,7 @@ scratch_dir: "/scratch1/fs1/jin810/numt_scratch"
 pipeline_dir: "/opt/numt-pipeline"
 
 # Unified Docker image
-docker_image: "dreammaerd/numt-pipeline:v1.2"
+docker_image: "dreammaerd/numt-pipeline:v1.3"
 
 # ---- References (mounted from cluster storage) ----
 # Used by: split_bam, run_dinumt_split

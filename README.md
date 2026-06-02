@@ -1,4 +1,4 @@
-# Short-Read NUMT Detection Pipeline (v1.2)
+# Short-Read NUMT Detection Pipeline (v1.3)
 
 ## Overview
 
@@ -46,7 +46,7 @@ scratch_dir: "/path/to/your/scratch"     # Temporary fast-storage directory for 
 # 2. System Settings (Do not change)
 # ==========================================
 pipeline_dir: "/opt/numt-pipeline"
-docker_image: "dreammaerd/numt-pipeline:v1.2"
+docker_image: "dreammaerd/numt-pipeline:v1.3"
 
 # ==========================================
 # 3. Reference Genomes (Must match cluster)
@@ -120,6 +120,6 @@ Once submitted, the script returns immediately, and the pipeline runs autonomous
 
 ## Dependencies & Architecture
 
-- **Containerized:** The pipeline is entirely encapsulated within the `dreammaerd/numt-pipeline:v1.2` Docker image, meaning zero local dependencies (like Perl or Python packages) are required.
+- **Containerized:** The pipeline is entirely encapsulated within the `dreammaerd/numt-pipeline:v1.3` Docker image, meaning zero local dependencies (like Perl or Python packages) are required.
 - **Host Requirements:** Must be executed on a WashU RIS LSF cluster node with `bsub` available.
 - **Storage:** Hardcoded to mount `/scratch1`, `/storage1`, `/storage2`, and your `${HOME}` directory to the Docker containers. If your cluster uses different mounts, edit the `VOLUMES_STR` inside `run_numt_pipeline.sh`.

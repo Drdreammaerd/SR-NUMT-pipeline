@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_DIR="$(pwd)"
-IMAGE_NAME="dreammaerd/numt-pipeline:v1.2"
+IMAGE_NAME="dreammaerd/numt-pipeline:v1.3"
 LOG_DIR="${REPO_DIR}/Docker/logs"
 
 mkdir -p "$LOG_DIR"
