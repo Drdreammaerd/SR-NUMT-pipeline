@@ -1,0 +1,7 @@
+SV_ID,VCF_Pos,Evidence_Span,Nuc_Len,Mito_Source,Mito_Len,Alt,Ref_Avg,Noisy_Reads,Total_Depth,Noise_Ratio,VAF%,Evidence_Type,Strand_Ratio,Status
+POP_NUMT_0002,chr1:20463438,chr1:20463438-20463539,101,5305-5327,22,6,73.5,207,287,2.61,7.55,"SoftClip_Left,SoftClip_Right",1.0,LowConf_StrandBias
+POP_NUMT_0018,chr16:89045944,chr16:89045943-89046073,130,5295-5325,30,19,75.0,276,370,2.94,20.21,SplitRead_Full,0.37,Validated
+POP_NUMT_0019,chr18:47853280,chr18:47853245-47853431,186,7980-8166,186,22,51.5,115,189,1.57,29.93,"DiscordantPair_Full,SplitRead_Full",0.86,LowConf_StrandBias
+POP_NUMT_0023,chr21:9676443,chr21:9676568-9676697,129,13155-13227,72,24,60.5,202,287,2.4,28.4,"DiscordantPair_Full,SoftClip_Left,SplitRead_Full",0.58,Validated
+POP_NUMT_0040,chr9:64048038,chr9:64048063-64048164,101,1179-1280,101,1,109.0,126,236,1.15,0.91,SplitRead_Full,0.0,LowConf
+POP_NUMT_0041,chrX:275207,chrX:275208-275440,232,8052-8518,466,35,81.0,209,325,1.8,30.17,"SoftClip_Left,SoftClip_Right,SplitRead_Full",0.66,Validated

@@ -1,0 +1,7 @@
+SampleID	Cohort	CRAM_Dir	Mode
+HG02257	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG02257/illumina_30x/HG02257.bam	FAMILY_BASED
+HG002	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG002/bams_300x/HG002.bam	FAMILY_BASED
+HG02622	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG02622/illumina_30x/HG02622.bam	FAMILY_BASED
+HG005	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG005/bams_300x/HG005.bam	FAMILY_BASED
+HG02486	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG02486/illumina_30x/HG02486.bam	FAMILY_BASED
+HG00438	GIAB_Cohort	/storage2/fs1/epigenome/Active/shared_smaht/data/GIAB/HG00438/illumina_30x/HG00438.bam	FAMILY_BASED

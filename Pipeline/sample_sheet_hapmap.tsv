@@ -1,0 +1,2 @@
+SampleID	Cohort	CRAM_Dir	Mode
+HapMap	HapMap_Mix	/storage2/fs1/epigenome/Active/shared_smaht/TEST_RUN_FOLDER/TrueMutSet/final_submission/data/for_share/washu_short_read/HapMap_Mixture_hg38.bam	INDIVIDUAL_BASED

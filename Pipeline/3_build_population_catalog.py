@@ -61,7 +61,7 @@ except ImportError:
 # CONSTANTS
 # ==========================================
 PRESENCE_META_COLS = [
-    'Coordinates', 'Mito_Source', 'NUMT_Class', 'Best_Confidence',
+    'Coordinates', 'Mito_Source', 'Discovery_Source', 'NUMT_Class', 'Best_Confidence',
     'Total_Validated_Organs', 'Total_Organs',
     'Validated_Organ_List', 'Missing_Organ_List',
 ]
@@ -179,11 +179,15 @@ def cross_donor_clustering(donors_data, cluster_dist=DEFAULT_CLUSTER_DIST):
         for numt_id in pm.index:
             coord_str = str(pm.loc[numt_id, 'Coordinates'])
             chrom, start, end = parse_coordinate(coord_str)
+            ms_val = pm.loc[numt_id, 'Mito_Source']
+            ds_val = pm.loc[numt_id, 'Discovery_Source'] if 'Discovery_Source' in pm.columns else None
+            
             all_entries.append({
                 'chrom': chrom, 'start': start, 'end': end,
                 'numt_id': numt_id, 'donor_id': donor_id,
                 'coordinates': coord_str,
-                'mito_source': str(pm.loc[numt_id, 'Mito_Source']),
+                'mito_source': str(ms_val) if pd.notna(ms_val) and str(ms_val).strip() != 'nan' else '.',
+                'discovery_source': str(ds_val) if pd.notna(ds_val) and str(ds_val).strip() != 'nan' else 'Unknown',
             })
 
     if not all_entries:
@@ -218,11 +222,23 @@ def cross_donor_clustering(donors_data, cluster_dist=DEFAULT_CLUSTER_DIST):
         for m in members:
             donor_members.setdefault(m['donor_id'], []).append(m)
 
+        # Aggregate Discovery_Source across all members
+        sources = set(m.get('discovery_source', 'Unknown') for m in members)
+        if 'Both' in sources or ('Dinumt_Only' in sources and 'Palmer_Only' in sources):
+            pop_src = 'Both'
+        elif 'Palmer_Only' in sources:
+            pop_src = 'Palmer_Only'
+        elif 'Dinumt_Only' in sources:
+            pop_src = 'Dinumt_Only'
+        else:
+            pop_src = 'Unknown'
+
         result.append({
             'pop_numt_id': f"POP_NUMT_{i+1:04d}",
             'chrom': cl['chrom'],
             'consensus_coordinates': consensus_coord,
             'mito_source': members[0]['mito_source'],
+            'discovery_source': pop_src,
             'members': members,
             'donor_members': donor_members,
             'n_donors': len(donor_members),
@@ -321,6 +337,7 @@ def generate_population_catalog(clusters, donors_data, all_donor_ids, out_dir, d
             'POP_NUMT_ID': cl['pop_numt_id'],
             'Consensus_Coordinates': cl['consensus_coordinates'],
             'Mito_Source': cl['mito_source'],
+            'Discovery_Source': cl.get('discovery_source', 'Unknown'),
             'Pop_Classification': pop_class,
             'N_Donors_Germline': n_germ,
             'N_Donors_Detected': n_det,
@@ -427,18 +444,15 @@ def generate_id_mapping(clusters, donors_data, all_donor_ids, out_dir, date_stam
     return df
 
 
+def format_sample_name(did, organ):
+    return did if did == organ else f"{did}_{organ}"
+
 def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
     """Generate Cross_Donor_Presence_Matrix.csv — POP_NUMT × (Donor×Organ) VAF matrix."""
     # Collect all donor organs
     donor_organs = OrderedDict()
     for did in all_donor_ids:
         donor_organs[did] = donors_data[did]['organs']
-
-    # Build organ column order: SMHT001_ADGR, SMHT001_AORT, ..., SMHT004_AORT, ...
-    organ_cols = []
-    for did in all_donor_ids:
-        for organ in donor_organs[did]:
-            organ_cols.append(f"{did}_{organ}")
 
     rows = []
     for cl in clusters:
@@ -447,6 +461,7 @@ def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date
             'POP_NUMT_ID': cl['pop_numt_id'],
             'Consensus_Coordinates': cl['consensus_coordinates'],
             'Mito_Source': cl['mito_source'],
+            'Discovery_Source': cl.get('discovery_source', 'Unknown'),
             'Pop_Class': pop_class,
         }
 
@@ -459,13 +474,13 @@ def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date
                 if numt_id in pm.index:
                     for organ in organs:
                         val = pm.loc[numt_id, organ] if organ in pm.columns else 0
-                        row[f"{did}_{organ}"] = val
+                        row[format_sample_name(did, organ)] = val
                 else:
                     for organ in organs:
-                        row[f"{did}_{organ}"] = 0
+                        row[format_sample_name(did, organ)] = 0
             else:
                 for organ in organs:
-                    row[f"{did}_{organ}"] = 0
+                    row[format_sample_name(did, organ)] = 0
 
         # Mark organs that don't exist in a donor as NA
         all_organs_union = set()
@@ -474,22 +489,33 @@ def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date
         for did in all_donor_ids:
             missing = all_organs_union - set(donor_organs[did])
             for organ in missing:
-                row[f"{did}_{organ}"] = 'NA'
+                # Skip if the missing 'organ' is actually another DonorID (GIAB single-tissue case)
+                if organ in all_donor_ids and organ != did:
+                    continue
+                row[format_sample_name(did, organ)] = 'NA'
 
         rows.append(row)
 
     df = pd.DataFrame(rows)
-    meta = ['POP_NUMT_ID', 'Consensus_Coordinates', 'Mito_Source', 'Pop_Class']
-    # Order organ columns by donor, then alphabetically
+    meta = ['POP_NUMT_ID', 'Consensus_Coordinates', 'Mito_Source', 'Discovery_Source', 'Pop_Class']
+    
+    # Order organ columns deterministically
     ordered_organ_cols = []
     for did in all_donor_ids:
-        did_cols = sorted([c for c in df.columns if c.startswith(f"{did}_") and c not in meta])
-        ordered_organ_cols.extend(did_cols)
+        for organ in sorted(donor_organs[did]):
+            ordered_organ_cols.append(format_sample_name(did, organ))
+        
+        missing = sorted(all_organs_union - set(donor_organs[did]))
+        for organ in missing:
+            if organ in all_donor_ids and organ != did:
+                continue
+            ordered_organ_cols.append(format_sample_name(did, organ))
+            
     df = df[meta + ordered_organ_cols]
 
     path = os.path.join(out_dir, f'Cross_Donor_Presence_Matrix_{date_stamp}.csv')
     df.to_csv(path, index=False)
-    logging.info(f"  Cross_Donor_Presence_Matrix: {len(df)} NUMTs × {len(ordered_organ_cols)} donor-organs → {path}")
+    logging.info(f"  Cross_Donor_Presence_Matrix: {len(df)} NUMTs × {len(ordered_organ_cols)} samples → {path}")
     return df
 
 
@@ -539,6 +565,14 @@ def generate_replicate_detail(clusters, donors_data, all_donor_ids, out_dir, dat
     path = os.path.join(details_dir, f'Cross_Donor_Replicate_Detail_{date_stamp}.csv')
     combined.to_csv(path, index=False)
     logging.info(f"  Cross_Donor_Replicate_Detail: {len(combined)} rows → {path}")
+    
+    # Log Evidence Tier Summary
+    if 'Evidence_Tier' in combined.columns:
+        tier_counts = combined['Evidence_Tier'].value_counts()
+        logging.info("  --- Population Evidence Tier Summary (Organ-Level) ---")
+        for t, count in tier_counts.items():
+            logging.info(f"    {t}: {count} occurrences across all donors")
+            
     return combined
 
 
@@ -602,7 +636,7 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
     sample_cols = []
     for did in all_donor_ids:
         for organ in donor_organs[did]:
-            sample_cols.append(f"{did}_{organ}")
+            sample_cols.append(format_sample_name(did, organ))
 
     # All organs across donors (for marking NA)
     all_organs_union = set()
@@ -614,14 +648,29 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
     if detail_df is not None and not detail_df.empty:
         for (pop_id, did, organ), grp in detail_df.groupby(
                 ['POP_NUMT_ID', 'DonorID', 'Organ']):
-            validated = grp[grp['Status'] == 'Validated']
+            validated = grp[grp['Status'].isin(['Validated', 'Palmer_Validated'])]
             all_rows = grp
             vaf = round(validated['VAF%'].mean(), 2) if not validated.empty else 0.0
             alt = int(validated['Alt'].sum()) if not validated.empty else 0
-            dp = int(all_rows['Total_Depth'].mean()) if not all_rows.empty else 0
-            noisy = int(all_rows['Noisy_Reads'].mean()) if not all_rows.empty else 0
-            noise_ratio = round(all_rows['Noise_Ratio'].mean(), 2) if not all_rows.empty else 0.0
-            sr = round(validated['Strand_Ratio'].mean(), 2) if not validated.empty else 0.0
+            dp = int(all_rows['Total_Depth'].fillna(0).mean()) if not all_rows.empty else 0
+            noisy = int(all_rows['Noisy_Reads'].fillna(0).mean()) if not all_rows.empty else 0
+            noise_ratio = round(all_rows['Noise_Ratio'].fillna(0).mean(), 2) if not all_rows.empty else 0.0
+            _sr = validated['Strand_Ratio'].mean() if not validated.empty else None
+            sr = round(_sr, 2) if pd.notna(_sr) else '.'
+            
+            # Palmer metrics
+            p_alt = int(all_rows['Palmer_Alt'].fillna(0).mean()) if 'Palmer_Alt' in all_rows.columns and not all_rows.empty else 0
+            p_dp = int(all_rows['Palmer_Depth'].fillna(0).mean()) if 'Palmer_Depth' in all_rows.columns and not all_rows.empty else 0
+            p_vaf = round(all_rows['Palmer_VAF'].fillna(0.0).mean(), 2) if 'Palmer_VAF' in all_rows.columns and not all_rows.empty else 0.0
+            
+            # Evidence Tier
+            tier = 'Tier 3'
+            if 'Evidence_Tier' in all_rows.columns and not all_rows.empty:
+                tiers = all_rows['Evidence_Tier'].dropna().unique()
+                if 'Tier 1' in tiers: tier = 'Tier 1'
+                elif 'Tier 2' in tiers: tier = 'Tier 2'
+                elif 'Tier 3' in tiers: tier = 'Tier 3'
+            
             n_val = len(validated)
             n_total = len(all_rows)
 
@@ -634,12 +683,16 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
                 cf = 'ND'
 
             # Source
-            sources = grp['Source'].unique()
-            src = 'R' if 'Stage2_Rescue' in sources or 'Rescue' in sources else 'D'
+            sources = grp['Source'].dropna().unique()
+            src_str = ','.join(sources) if len(sources) > 0 else 'D'
+            src = 'R' if 'Stage2_Rescue' in src_str or 'Rescue' in src_str else 'D'
+            if 'Palmer_TSV' in src_str:
+                src += 'P'
 
             organ_metrics[(pop_id, did, organ)] = {
                 'vaf': vaf, 'dp': dp, 'alt': alt, 'noisy': noisy,
                 'noise_ratio': noise_ratio, 'sr': sr, 'cf': cf, 'src': src,
+                'p_alt': p_alt, 'p_dp': p_dp, 'p_vaf': p_vaf, 'tier': tier.replace(' ', ''),
                 'detected': n_val > 0,
             }
 
@@ -656,11 +709,15 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
         f.write('##INFO=<ID=END,Number=1,Type=Integer,Description="End position">\n')
         f.write('##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Insertion length">\n')
         f.write('##INFO=<ID=MITO_SRC,Number=1,Type=String,Description="Mitochondrial source region">\n')
+        f.write('##INFO=<ID=DISC_SRC,Number=1,Type=String,Description="Discovery Source (Dinumt_Only, Palmer_Only, Both, Unknown)">\n')
         f.write('##INFO=<ID=POP_CLASS,Number=1,Type=String,Description="Population classification">\n')
         f.write('##INFO=<ID=NDONORS,Number=1,Type=Integer,Description="Number of donors detected">\n')
         f.write('##INFO=<ID=NDONORS_TOTAL,Number=1,Type=Integer,Description="Total number of donors">\n')
         f.write('##INFO=<ID=DONOR_CLASS,Number=1,Type=String,Description="Per-donor classification">\n')
         f.write('##INFO=<ID=DONOR_IDS,Number=1,Type=String,Description="Per-donor original NUMT IDs">\n')
+        # FILTER
+        f.write('##FILTER=<ID=PASS,Description="Classified as Germline, Mosaicism, or Somatic in at least one donor">\n')
+        f.write('##FILTER=<ID=LOWCONF,Description="Failed minimal quality thresholds in all donors (Unclassified or Not Detected)">\n')
         # FORMAT
         f.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype: 0/1=detected, 0/0=not detected, ./.=no data">\n')
         f.write('##FORMAT=<ID=VAF,Number=1,Type=Float,Description="Variant allele frequency (%)">\n')
@@ -669,19 +726,25 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
         f.write('##FORMAT=<ID=NR,Number=1,Type=Integer,Description="Noisy reads (mean)">\n')
         f.write('##FORMAT=<ID=NRR,Number=1,Type=Float,Description="Noise ratio (mean)">\n')
         f.write('##FORMAT=<ID=SR,Number=1,Type=Float,Description="Strand ratio (mean of validated)">\n')
-        f.write('##FORMAT=<ID=CF,Number=1,Type=String,Description="Confidence: HC=High, MC=Medium, LC=LowCenter, LR=LowRep, ND=NotDetected">\n')
-        f.write('##FORMAT=<ID=SRC,Number=1,Type=String,Description="Source: D=Stage1_Discovery, R=Stage2_Rescue">\n')
+        f.write('##FORMAT=<ID=CF,Number=1,Type=String,Description="Confidence: HC=High, MC=Medium, ND=NotDetected">\n')
+        f.write('##FORMAT=<ID=SRC,Number=1,Type=String,Description="Source: D=Stage1_Discovery, R=Stage2_Rescue, DP=Discovery+Palmer, RP=Rescue+Palmer, P=PalmerOnly">\n')
+        f.write('##FORMAT=<ID=P_ALT,Number=1,Type=Integer,Description="Palmer Alt Read Count">\n')
+        f.write('##FORMAT=<ID=P_DP,Number=1,Type=Integer,Description="Palmer Total Depth">\n')
+        f.write('##FORMAT=<ID=P_VAF,Number=1,Type=Float,Description="Palmer VAF (%)">\n')
+        f.write('##FORMAT=<ID=TIER,Number=1,Type=String,Description="Evidence Tier: Tier1, Tier2, Tier3">\n')
+        
         # Sample metadata
         for did in all_donor_ids:
             for organ in donor_organs[did]:
-                f.write(f'##SAMPLE=<ID={did}_{organ},DonorID={did},Organ={organ}>\n')
+                sname = format_sample_name(did, organ)
+                f.write(f'##SAMPLE=<ID={sname},DonorID={did},Organ={organ}>\n')
         # Column header
         cols = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT']
         cols.extend(sample_cols)
         f.write('\t'.join(cols) + '\n')
 
         # Data rows
-        format_str = 'GT:VAF:DP:ALT:NR:NRR:SR:CF:SRC'
+        format_str = 'GT:VAF:DP:ALT:NR:NRR:SR:CF:SRC:P_ALT:P_DP:P_VAF:TIER'
         for cl in clusters:
             pop_class, donor_classifs, n_germ, n_det = classify_population(
                 cl, donors_data, all_donor_ids)
@@ -700,6 +763,7 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
                 f"END={end}",
                 f"SVLEN={end-start}",
                 f"MITO_SRC={cl['mito_source']}",
+                f"DISC_SRC={cl.get('discovery_source', 'Unknown')}",
                 f"POP_CLASS={pop_class}",
                 f"NDONORS={n_det}",
                 f"NDONORS_TOTAL={len(all_donor_ids)}",
@@ -709,12 +773,9 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
             info_str = ';'.join(info_parts)
 
             # FILTER
-            if pop_class == 'Shared_Germline':
+            valid_classes = {'Germline', 'Mosaicism', 'Somatic'}
+            if any(c in valid_classes for c in donor_classifs.values()):
                 filt = 'PASS'
-            elif 'Germline' in pop_class:
-                filt = 'PASS'
-            elif 'Mixed' in pop_class:
-                filt = 'MIXED'
             else:
                 filt = 'LOWCONF'
 
@@ -729,14 +790,15 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
                         m = organ_metrics[key]
                         gt = '0/1' if m['detected'] else '0/0'
                         sample_values.append(
-                            f"{gt}:{m['vaf']}:{m['dp']}:{m['alt']}:"
-                            f"{m['noisy']}:{m['noise_ratio']}:{m['sr']}:"
-                            f"{m['cf']}:{m['src']}")
+                            f"{gt}:{m['vaf']}:{m['dp']}:{m['alt']}:{m['noisy']}:"
+                            f"{m['noise_ratio']}:{m['sr']}:{m['cf']}:{m['src']}:"
+                            f"{m['p_alt']}:{m['p_dp']}:{m['p_vaf']}:{m['tier']}")
                     elif did not in cl['donor_members']:
                         # Donor has this organ but NUMT not detected
-                        sample_values.append('0/0:0:0:0:0:0:0:ND:.')
+                        sample_values.append('0/0:0.0:0:0:0:0.0:0.0:ND:.:0:0:0.0:Tier3')
                     else:
-                        sample_values.append('0/0:0:0:0:0:0:0:ND:D')
+                        # Donor doesn't have this organ
+                        sample_values.append('./.:0.0:0:0:0:0.0:0.0:ND:.:0:0:0.0:Tier3')
 
             row = [chrom, str(start), cl['pop_numt_id'], 'N', '<NUMT>',
                    '.', filt, info_str, format_str] + sample_values
@@ -873,9 +935,10 @@ def run_cross_donor_rescue(clusters, donors_data, all_donor_ids, cohort_df,
                         res['Tissue'] = tissue
                         res['Center'] = rep.get('Center', '')
                         res['Rep'] = rep.get('Rep', '')
-                        res['Organ'] = rep.get('Organ', '')
+                        res['Organ'] = rep.get('Organ', rep.get('Tissue', ''))
                         res['SampleID'] = target_donor
                         res['Source'] = 'Stage2_Rescue'
+                        res['POP_NUMT_ID'] = res['SV_ID']
                         res['NUMT_ID'] = res['SV_ID']
                         all_rescue_details.append(res)
                         n_val = sum(res['Status'] == 'Validated')
@@ -892,9 +955,11 @@ def run_cross_donor_rescue(clusters, donors_data, all_donor_ids, cohort_df,
 
         # Build rescue report per POP_NUMT
         if all_rescue_details:
-            donor_rescue = pd.concat(
-                [d for d in all_rescue_details if d['SampleID'].iloc[0] == target_donor],
-                ignore_index=True)
+            target_rescues = [d for d in all_rescue_details if d['SampleID'].iloc[0] == target_donor]
+            if target_rescues:
+                donor_rescue = pd.concat(target_rescues, ignore_index=True)
+            else:
+                donor_rescue = pd.DataFrame()
         else:
             donor_rescue = pd.DataFrame()
 
@@ -903,7 +968,7 @@ def run_cross_donor_rescue(clusters, donors_data, all_donor_ids, cohort_df,
             source_ids = [m['numt_id'] for d in task['source_donors']
                           for m in task['cluster']['donor_members'].get(d, [])]
 
-            numt_res = donor_rescue[donor_rescue['NUMT_ID'] == pop_id] \
+            numt_res = donor_rescue[donor_rescue['POP_NUMT_ID'] == pop_id] \
                 if not donor_rescue.empty else pd.DataFrame()
 
             if not numt_res.empty:
@@ -994,7 +1059,7 @@ def merge_rescue_into_data(clusters, donors_data, all_donor_ids,
 
         # Get rescue replicate data
         numt_rescue = rescue_details_df[
-            (rescue_details_df['NUMT_ID'] == pop_id) &
+            (rescue_details_df['POP_NUMT_ID'] == pop_id) &
             (rescue_details_df['SampleID'] == target_donor)
         ] if not rescue_details_df.empty else pd.DataFrame()
 
@@ -1028,8 +1093,9 @@ def merge_rescue_into_data(clusters, donors_data, all_donor_ids,
 
         # Update cluster membership
         if target_donor not in cl['donor_members']:
+            _, rescue_start, rescue_end = parse_coordinate(cl['consensus_coordinates'])
             rescue_member = {
-                'chrom': cl['chrom'], 'start': 0, 'end': 0,
+                'chrom': cl['chrom'], 'start': rescue_start, 'end': rescue_end,
                 'numt_id': rescue_id, 'donor_id': target_donor,
                 'coordinates': cl['consensus_coordinates'],
                 'mito_source': cl['mito_source'],

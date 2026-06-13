@@ -1,0 +1,33 @@
+# ============================================================
+# Configuration for NUMT Discovery Pipeline (Stage 0)
+# ============================================================
+# This config drives 1_discovery_workflow.smk (Snakemake).
+# Edit donors[] and directory paths for each run.
+# ============================================================
+
+# Docker image to use for all rules
+docker_image: "ztang301/all_dinumt:v1.2J"
+
+# Donor samples to process (edit per run)
+donors:
+  - "SMHT001"
+
+# Reference genome (needed for samtools view on CRAM files)
+ref_fasta: "/storage2/fs1/epigenome/Active/shared_smaht/References/SMAHT_References/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa"
+
+# Directory paths — adjust per project
+base_input_dir: "/storage2/fs1/epigenome/Active/shared_smaht/SMaHT_Aligned_WGS_Data/ProductionData"
+metadata_dir: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/SMAHT_DONOR_NUMT/metadata"
+output_dir: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/SMAHT_DONOR_NUMT/output"
+log_dir: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/SMAHT_DONOR_NUMT/logs"
+scripts_dir: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/NUMT-dinumt-pipeline/Pipeline/helpers"
+
+# Optional: Override dinumt paths (defaults are set in the .smk file)
+# dinumt_script: "/opt/numt-pipeline/Custom_Tools/dinumt_AllNumts.pl"
+dinumt_mask: "/opt/numt-pipeline/Custom_Tools/refNumts.38.bed"
+
+# Cluster configuration
+cluster:
+  group: "compute-jin810"
+  queue: "general"
+  default_mem: 16000

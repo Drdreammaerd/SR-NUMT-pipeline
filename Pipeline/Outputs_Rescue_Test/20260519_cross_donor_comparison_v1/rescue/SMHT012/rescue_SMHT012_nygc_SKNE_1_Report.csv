@@ -1,0 +1,2 @@
+SV_ID,VCF_Pos,Evidence_Span,Nuc_Len,Mito_Source,Mito_Len,Alt,Ref_Avg,Noisy_Reads,Total_Depth,Noise_Ratio,VAF%,Evidence_Type,Strand_Ratio,Status
+POP_NUMT_0002,chr1:20463438,chr1:20463438-20463556,118,5305-5327,22,4,106.0,375,485,3.41,3.64,"SoftClip_Left,SoftClip_Right",1.0,LowConf_StrandBias

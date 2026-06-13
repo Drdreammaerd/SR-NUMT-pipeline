@@ -68,11 +68,12 @@ CHROM_CHUNKS = {}  # chunk_name → (samtools_region_for_split, samtools_region_
 
 # Sub-split thresholds (GRCh38 sizes, rounded)
 _LARGE_CHROMS = {
-    "chr1":  248956422,
-    "chr2":  242193529,
-    "chr3":  198295559,
-    "chr4":  190214555,
-    "chr5":  181538259,
+    "chr1":  248956422, "chr2":  242193529, "chr3":  198295559, "chr4":  190214555,
+    "chr5":  181538259, "chr6":  170805979, "chr7":  159345973, "chr8":  145138636,
+    "chr9":  138394717, "chr10": 133797422, "chr11": 135086622, "chr12": 133275309,
+    "chr13": 114364328, "chr14": 107043718, "chr15": 101991189, "chr16": 90338345,
+    "chr17": 83257441,  "chr18": 80373285,  "chr19": 58617616,  "chr20": 64444167,
+    "chr21": 46709983,  "chr22": 50818468,  "chrX":  156040895, "chrY":  57227415,
 }
 _CHUNK_SIZE = 60_000_000  # 60 Mb per chunk
 _OVERLAP = 5000           # 5 kb overlap to prevent boundary artifacts
@@ -91,11 +92,6 @@ for chrom_name, chrom_len in _LARGE_CHROMS.items():
         CHROM_CHUNKS[chunk_id] = (chrom_name, region)
         start = end + 1
         part += 1
-
-# Smaller chromosomes stay whole
-for i in list(range(6, 23)) + ["X", "Y"]:
-    cname = f"chr{i}"
-    CHROM_CHUNKS[cname] = (cname, cname)
 
 CHROMOSOMES = list(CHROM_CHUNKS.keys())
 
@@ -258,9 +254,8 @@ rule run_dinumt_split:
         timeout_sec = 86400
     retries: 3
     resources:
-        # Memory escalation: 16GB → 32GB → 64GB on each retry
-        # (chr2 slowness is CPU-bound, not memory, but OOM can happen elsewhere)
-        mem_mb = lambda wildcards, attempt: 16000 * (2 ** (attempt - 1)),
+        # Memory escalation: 64GB → 128GB → 256GB on each retry to prevent swap thrashing for deep tissues
+        mem_mb = lambda wildcards, attempt: 64000 * (2 ** (attempt - 1)),
         docker = DOCKER_IMAGE
     benchmark:
         f"{BENCHMARK_DIR}/{{donor}}_{{tissue}}_{{chrom}}_dinumt.tsv"
@@ -399,7 +394,8 @@ rule validate_donor:
         out_dir = f"{RESULTS_DIR}",
         blat = BLAT_BIN,
         mito_ref = MITO_REF,
-        ref = REF_VALIDATION
+        ref = REF_VALIDATION,
+        palmer_dir = config.get("palmer_dir", "")
     resources:
         mem_mb = 16000,
         docker = DOCKER_IMAGE
@@ -416,6 +412,7 @@ rule validate_donor:
             --blat {params.blat} \
             --mito_ref {params.mito_ref} \
             --ref {params.ref} \
+            $(if [ -n "{params.palmer_dir}" ]; then echo "--palmer_dir {params.palmer_dir}"; fi) \
             > {log} 2>&1
         """
 

@@ -1,0 +1,7 @@
+DonorID,Total_NUMTs_In_PresenceMatrix,Germline,Mosaicism,Somatic,Other,Shared_With_All_Donors,Unique_To_Donor,Organs_Available
+SMHT001,21,10,10,1,0,7,6,20
+SMHT004,17,12,4,1,0,7,0,13
+SMHT005,16,11,5,0,0,7,1,18
+SMHT012,18,12,6,0,0,7,2,13
+SMHT023,26,9,5,12,0,7,12,19
+SMHT024,14,7,6,1,0,7,0,19

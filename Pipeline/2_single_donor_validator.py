@@ -21,8 +21,9 @@ import logging
 from dataclasses import dataclass
 from functools import wraps
 from collections import defaultdict
-
 import pandas as pd
+import numpy as np
+import glob
 
 # Conditional import - pysam only needed for BAM/CRAM operations
 try:
@@ -116,17 +117,18 @@ def timer(func):
 # ==========================================
 def parse_tissue_name(tissue_str):
     """
-    Parse 'broad_HART_1' → (center='broad', organ='HART', rep='1').
-    Handles: broad_HART_1, uwsc_BLOO_2, bcm_COAS_1, uwsc_FBRO_1
+    Parse 'merged_3AC_FBRO_1' → (center='merged', organ='FBRO', rep='1', tissue_code='3AC').
+    Handles standard 4-part names.
     """
     parts = tissue_str.split('_')
-    if len(parts) >= 3:
+    if len(parts) >= 4:
         center = parts[0]
-        organ = '_'.join(parts[1:-1])
+        tissue_code = parts[1]
+        organ = '_'.join(parts[2:-1])
         rep = parts[-1]
         return center, organ, rep
-    elif len(parts) == 2:
-        return parts[0], parts[1], '1'
+    elif len(parts) == 3:
+        return parts[0], parts[1], parts[2]
     else:
         return 'unknown', tissue_str, '1'
 
@@ -248,6 +250,68 @@ def read_vcf_positions(vcf_path):
                     continue
     return positions
 
+
+def read_palmer_candidates(palmer_dir, sample_id):
+    """
+    Find all Palmer TSVs for this donor, parse out unique (chrom, pos) loci.
+    Returns:
+        candidates: list of (chrom, pos, id, source)
+        palmer_data_dict: dict mapping (chrom, pos) -> {Organ: {'Palmer_Alt': int, 'Palmer_Depth': int, 'Palmer_VAF': float}}
+    """
+    from helpers.tissue_metadata import TPC_TO_INTERNAL
+
+    candidates = []
+    palmer_data_dict = {}
+    if not palmer_dir or not os.path.isdir(palmer_dir):
+        return candidates, palmer_data_dict
+    
+    search_pattern = os.path.join(palmer_dir, "**", f"{sample_id}*.tsv")
+    tsv_files = glob.glob(search_pattern, recursive=True)
+    
+    unique_loci = set()
+    for tsv in tsv_files:
+        try:
+            # Filename is usually SMHT001-3A.tsv or SMHT001-3AC.tsv
+            basename = os.path.basename(tsv).replace('.tsv', '')
+            parts = basename.split('-')
+            if len(parts) >= 2:
+                tpc_code = parts[-1] # e.g. 3A
+                organ = TPC_TO_INTERNAL.get(tpc_code, tpc_code)
+            else:
+                organ = 'Unknown'
+
+            df = pd.read_csv(tsv, sep='\t', usecols=['chrom', 'pos_rep', 'n_unique_reads', 'depth_pileup_sum', 'vaf_palmer', 'numt_qc_tier'])
+            
+            # Filter Palmer calls:
+            # 1. Somatic / Mosaic: numt_qc_tier == 'NUMT_clean/partial' AND n_unique_reads >= 2
+            # 2. Germline Rescue: vaf_palmer >= 0.25 AND n_unique_reads >= 4
+            mask_somatic = df['numt_qc_tier'].isin(['NUMT_clean', 'NUMT_partial']) & (df['n_unique_reads'] >= 2)
+            mask_germline = (df['vaf_palmer'] >= 0.25) & (df['n_unique_reads'] >= 4)
+            df = df[mask_somatic | mask_germline]
+            
+            for _, row in df.iterrows():
+                chrom = str(row['chrom'])
+                if not chrom.startswith('chr'):
+                    chrom = f"chr{chrom}"
+                pos = int(row['pos_rep'])
+                unique_loci.add((chrom, pos))
+                
+                if (chrom, pos) not in palmer_data_dict:
+                    palmer_data_dict[(chrom, pos)] = {}
+                palmer_data_dict[(chrom, pos)][organ] = {
+                    'Palmer_Alt': int(row['n_unique_reads']) if pd.notna(row['n_unique_reads']) else 0,
+                    'Palmer_Depth': int(row['depth_pileup_sum']) if pd.notna(row['depth_pileup_sum']) else 0,
+                    'Palmer_VAF': round(float(row['vaf_palmer']) * 100, 2) if pd.notna(row['vaf_palmer']) else 0.0,
+                    'Palmer_QC': str(row['numt_qc_tier'])
+                }
+        except Exception as e:
+            logging.warning(f"Failed to parse Palmer TSV {tsv}: {e}")
+            
+    for i, (chrom, pos) in enumerate(sorted(unique_loci)):
+        candidates.append((chrom, pos, f"PALMER_RAW_{i}", "Palmer"))
+        
+    logging.info(f"Loaded {len(candidates)} unique Palmer candidates from {len(tsv_files)} files")
+    return candidates, palmer_data_dict
 
 def cluster_positions(all_positions, cluster_dist=100):
     """Cluster nearby NUMT candidates on the same chromosome."""
@@ -406,6 +470,7 @@ def run_numt_final_validator(psl_path, bam_path, vcf_path, output_csv, ref_fasta
         if chrom not in valid_chrs:
             debug_log.append({'SV_ID': sv_id, 'Reason': f'Non-standard Chrom ({chrom})'})
             continue
+
         if len(group) >= 3:
             med = group['span_mid'].median(); sd = group['span_mid'].std()
             clean = group[abs(group['span_mid'] - med) <= 2*sd] if sd > 0 else group
@@ -508,7 +573,7 @@ def calculate_organ_confidence(organ_detail_df):
 # STEP 2.5: GLOBAL RE-CLUSTERING
 # ==========================================
 @timer
-def recluster_global_numts(all_details, all_summaries, sample_id, cluster_dist=1000):
+def recluster_global_numts(all_details, all_summaries, sample_id, palmer_dir=None, cluster_dist=1000):
     """
     Re-cluster NUMTs across all organs by genomic position.
     
@@ -520,68 +585,136 @@ def recluster_global_numts(all_details, all_summaries, sample_id, cluster_dist=1
     """
     logging.info("=== Step 2.5: Global Re-clustering ===")
     
-    if all_details.empty:
-        return all_details, all_summaries
-    
     # Step A: Build per-(organ, old_numt_id) position entries
     # Each organ's results for a given NUMT_ID get their own entry
     entries = []  # (chrom, pos, composite_key, organ)
     seen = set()
     
-    for _, row in all_details.iterrows():
-        organ = row['Organ']
-        old_id = row['NUMT_ID']
-        composite_key = f"{organ}|{old_id}"
+    if not all_details.empty:
+        for _, row in all_details.iterrows():
+            organ = row['Organ']
+            old_id = row['NUMT_ID']
+            composite_key = f"{organ}|{old_id}"
+            
+            if composite_key in seen:
+                continue
+            seen.add(composite_key)
+            
+            vcf_pos = row['VCF_Pos']  # e.g., "chr1:54625046"
+            try:
+                chrom, pos = vcf_pos.split(':')
+                pos = int(pos)
+                entries.append((chrom, pos, composite_key, organ))
+            except (ValueError, AttributeError):
+                entries.append(('unknown', 0, composite_key, organ))
+                
+    # Add Palmer Candidates
+    palmer_cands, palmer_data_dict = read_palmer_candidates(palmer_dir, sample_id)
+    for p in palmer_cands:
+        entries.append((p[0], p[1], f"Palmer_Seed|{p[2]}", "Palmer_Seed"))
         
-        if composite_key in seen:
-            continue
-        seen.add(composite_key)
-        
-        vcf_pos = row['VCF_Pos']  # e.g., "chr1:54625046"
-        try:
-            chrom, pos = vcf_pos.split(':')
-            pos = int(pos)
-            entries.append((chrom, pos, composite_key, organ))
-        except (ValueError, AttributeError):
-            entries.append(('unknown', 0, composite_key, organ))
+    if not entries:
+        return all_details, all_summaries, palmer_data_dict
     
-    logging.info(f"  {len(entries)} unique (organ, NUMT_ID) entries to cluster")
+    logging.info(f"  {len(entries)} unique entries to cluster (including Palmer seeds)")
     
     # Step B: Cluster by position globally
     clusters = cluster_positions(entries, cluster_dist)
     logging.info(f"  Clustered into {len(clusters)} global NUMTs")
     
-    # Step C: Build mapping: composite_key → global_id
+    # Step C: Build mapping: composite_key → global_id and map Discovery Source
     composite_to_global = {}
+    global_source_map = {}
+    dummy_details = []
+    dummy_summaries = []
+    
     for i, cl in enumerate(clusters):
         global_id = f"{sample_id}_NUMT_{i+1:04d}"
+        
+        has_dinumt = False
+        has_palmer = False
+        
         for member_key in cl['member_ids']:
             composite_to_global[member_key] = global_id
+            if member_key.startswith("Palmer_Seed|"):
+                has_palmer = True
+            else:
+                has_dinumt = True
+                
+        if has_dinumt and has_palmer:
+            src = "Both"
+        elif has_palmer:
+            src = "Palmer_Only"
+        else:
+            src = "Dinumt_Only"
+            
+        global_source_map[global_id] = src
+        
+        # If Palmer_Only, it has no presence in all_details yet. 
+        # Inject dummy rows so run_cross_tissue_rescue can see its coordinates and try to rescue it.
+        if src == "Palmer_Only":
+            dummy_details.append({
+                'NUMT_ID': global_id,
+                'Organ': 'Palmer_Seed',
+                'Tissue': 'Palmer_Seed',
+                'Center': 'Palmer',
+                'Rep': '1',
+                'Source': 'Discovery',
+                'Chrom': cl['chrom'],
+                'Start': int(cl['pos']),
+                'End': int(cl['pos']) + 1,
+                'VCF_Pos': f"{cl['chrom']}:{cl['pos']}",
+                'Evidence_Span': f"{cl['chrom']}:{cl['pos']}-{cl['pos']}",
+                'Mito_Source': '',
+                'Status': 'Not_Detected', # Crucial: not 'Validated'
+                'Discovery_Source': src
+            })
+            dummy_summaries.append({
+                'NUMT_ID': global_id,
+                'Organ': 'Palmer_Seed',
+                'Organ_Confidence': 'Palmer_Seed' # Triggers rescue
+            })
     
     # Step D: Map old NUMT_IDs to global IDs in details
-    # Need to map based on (Organ, old NUMT_ID) → global_id
-    def map_to_global(row):
-        key = f"{row['Organ']}|{row['NUMT_ID']}"
-        return composite_to_global.get(key, row['NUMT_ID'])
+    if not all_details.empty:
+        def map_to_global(row):
+            key = f"{row['Organ']}|{row['NUMT_ID']}"
+            return composite_to_global.get(key, row['NUMT_ID'])
+        
+        all_details['NUMT_ID'] = all_details.apply(map_to_global, axis=1)
+        # Assign source mapping to existing dinumt rows
+        all_details['Discovery_Source'] = all_details['NUMT_ID'].map(global_source_map)
     
-    all_details['NUMT_ID'] = all_details.apply(map_to_global, axis=1)
+    # Inject dummy rows for Palmer_Only seeds
+    if dummy_details:
+        all_details = pd.concat([all_details, pd.DataFrame(dummy_details)], ignore_index=True)
+        all_summaries = pd.concat([all_summaries, pd.DataFrame(dummy_summaries)], ignore_index=True)
     
-    # Step E: Re-calculate organ confidence with merged IDs
+    # Step E: Re-calculate organ confidence with merged IDs (excluding Palmer dummies)
     new_summaries = []
-    for organ in all_details['Organ'].unique():
-        organ_data = all_details[all_details['Organ'] == organ]
-        if not organ_data.empty:
-            organ_conf = calculate_organ_confidence(organ_data)
-            organ_conf['Organ'] = organ
-            new_summaries.append(organ_conf)
+    if not all_details.empty:
+        for organ in all_details['Organ'].unique():
+            if organ == 'Palmer_Seed':
+                continue
+            organ_data = all_details[all_details['Organ'] == organ]
+            if not organ_data.empty:
+                organ_conf = calculate_organ_confidence(organ_data)
+                organ_conf['Organ'] = organ
+                new_summaries.append(organ_conf)
     
-    all_summaries = pd.concat(new_summaries, ignore_index=True) if new_summaries else all_summaries
+    # Keep the Palmer_Seed dummy summaries so rescue works
+    palmer_summaries = all_summaries[all_summaries['Organ'] == 'Palmer_Seed'] if not all_summaries.empty else pd.DataFrame()
+    
+    if new_summaries:
+        all_summaries = pd.concat(new_summaries + [palmer_summaries], ignore_index=True)
+    else:
+        all_summaries = palmer_summaries
     
     # Stats
     n_global = len(clusters)
     logging.info(f"  Final: {len(entries)} entries → {n_global} global NUMTs")
     
-    return all_details, all_summaries
+    return all_details, all_summaries, palmer_data_dict
 
 # ==========================================
 # LEVEL 1: PER-ORGAN UNION VALIDATION
@@ -645,7 +778,7 @@ def run_organ_validation(organ, organ_reps_df, donor_dir, sample_id,
 # ==========================================
 @timer
 def run_cross_tissue_rescue(all_summaries, all_details, manifest_df, donor_dir,
-                            sample_id, mito_ref, ref_fasta, blat_bin, keep_tmp):
+                            sample_id, mito_ref, ref_fasta, blat_bin, keep_tmp=False, palmer_data_dict=None):
     """Rescue NUMTs in organs that didn't detect them."""
     if all_summaries.empty:
         return all_details, all_summaries
@@ -720,11 +853,17 @@ def run_cross_tissue_rescue(all_summaries, all_details, manifest_df, donor_dir,
                         if os.path.exists(fp): os.remove(fp)
             except Exception as e:
                 logging.error(f"  Rescue fail {tissue}: {e}")
-        if rep_results:
-            rd = pd.concat(rep_results, ignore_index=True)
-            rescued_d.append(rd)
-            rs = calculate_organ_confidence(rd); rs['Organ'] = target_organ
-            rescued_s.append(rs)
+    # Ensure Palmer_Seed dummy rows persist through rescue to generate_final_outputs 
+    # and their Discovery_Source is preserved in details. Rescue rows need to pick up Discovery_Source.
+    if rep_results:
+        rd = pd.concat(rep_results, ignore_index=True)
+        # Assign Discovery Source for rescued rows
+        rd['Discovery_Source'] = rd['NUMT_ID'].map(
+            lambda x: all_details[all_details['NUMT_ID']==x]['Discovery_Source'].iloc[0] if not all_details[all_details['NUMT_ID']==x].empty else 'Rescue'
+        )
+        rescued_d.append(rd)
+        rs = calculate_organ_confidence(rd); rs['Organ'] = target_organ
+        rescued_s.append(rs)
 
     combined_d = pd.concat([all_details] + rescued_d, ignore_index=True) if rescued_d else all_details
     combined_s = pd.concat([all_summaries] + rescued_s, ignore_index=True) if rescued_s else all_summaries
@@ -734,7 +873,7 @@ def run_cross_tissue_rescue(all_summaries, all_details, manifest_df, donor_dir,
 # FINAL CLASSIFICATION & OUTPUT
 # ==========================================
 @timer
-def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, sample_id):
+def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, sample_id, palmer_data_dict=None):
     """
     Generate final Stage 1 outputs with new directory layout:
       - {donor_dir}/{sample_id}_Presence_Matrix.csv  (main output at donor root)
@@ -751,9 +890,141 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
     reports_dir = os.path.join(donor_dir, "reports")
     os.makedirs(reports_dir, exist_ok=True)
 
+    # INJECT PALMER DATA AND CALCULATE EVIDENCE TIER
+    if not all_details.empty:
+        # Initialize new Palmer columns with NaNs
+        all_details['Palmer_Alt'] = np.nan
+        all_details['Palmer_Depth'] = np.nan
+        all_details['Palmer_VAF'] = np.nan
+        all_details['Palmer_QC'] = np.nan
+        all_details['Evidence_Tier'] = 'Tier 3' # Default
+
+        # Iterate through rows to update
+        for idx, row in all_details.iterrows():
+            organ = row['Organ']
+            # Palmer_Seed is a dummy organ, we skip it
+            if organ == 'Palmer_Seed':
+                continue
+                
+            # Extract locus (chrom, pos)
+            vcf_pos = row['VCF_Pos']
+            try:
+                chrom, pos_str = vcf_pos.split(':')
+                pos = int(pos_str)
+            except:
+                continue
+                
+            # Check if this locus exists in palmer_data_dict for this organ
+            palmer_metrics = None
+            if palmer_data_dict and (chrom, pos) in palmer_data_dict:
+                if organ in palmer_data_dict[(chrom, pos)]:
+                    palmer_metrics = palmer_data_dict[(chrom, pos)][organ]
+                    
+            if palmer_metrics:
+                if pd.isna(all_details.at[idx, 'Chrom']) or str(all_details.at[idx, 'Chrom']).strip() in ['', 'nan']:
+                    all_details.at[idx, 'Chrom'] = chrom
+                if pd.isna(all_details.at[idx, 'Start']):
+                    all_details.at[idx, 'Start'] = int(pos)
+                if pd.isna(all_details.at[idx, 'End']):
+                    all_details.at[idx, 'End'] = int(pos) + 1
+                all_details.at[idx, 'Palmer_Alt'] = palmer_metrics.get('Palmer_Alt')
+                all_details.at[idx, 'Palmer_Depth'] = palmer_metrics.get('Palmer_Depth')
+                all_details.at[idx, 'Palmer_VAF'] = palmer_metrics.get('Palmer_VAF')
+                all_details.at[idx, 'Palmer_QC'] = palmer_metrics.get('Palmer_QC')
+                
+                # Append Palmer_TSV to Source if not already there
+                curr_source = str(row.get('Source', ''))
+                if 'Palmer_TSV' not in curr_source:
+                    new_source = f"{curr_source}, Palmer_TSV" if curr_source and curr_source != 'Unknown' else "Palmer_TSV"
+                    all_details.at[idx, 'Source'] = new_source
+                    
+        # Now we might have Palmer seeds that Dinumt completely missed in some organs.
+        # But wait! If Dinumt missed it, there is NO ROW in all_details for that organ!
+        # We must create it.
+        new_rows = []
+        if palmer_data_dict:
+            # We need to know which global NUMT_ID corresponds to each (chrom, pos)
+            # We can build a reverse map from all_details (ignoring dummy rows)
+            pos_to_nid = {}
+            pos_to_ds = {}
+            for _, r in all_details.iterrows():
+                try:
+                    c, p = r['VCF_Pos'].split(':')
+                    pos_to_nid[(c, int(p))] = r['NUMT_ID']
+                    pos_to_ds[(c, int(p))] = r['Discovery_Source']
+                except:
+                    pass
+                    
+            for (chrom, pos), organ_dict in palmer_data_dict.items():
+                if (chrom, pos) not in pos_to_nid:
+                    # This shouldn't happen unless clustering failed, but just in case
+                    continue
+                    
+                nid = pos_to_nid[(chrom, pos)]
+                ds = pos_to_ds[(chrom, pos)]
+                
+                for organ, metrics in organ_dict.items():
+                    # Check if this organ already has a row for this NUMT_ID
+                    existing = all_details[(all_details['NUMT_ID'] == nid) & (all_details['Organ'] == organ)]
+                    if existing.empty:
+                        # Dinumt missed it entirely (no Stage1, no Stage2 Rescue)
+                        # We inject a pure Palmer row!
+                        new_row = {
+                            'NUMT_ID': nid, 'SampleID': sample_id, 'Organ': organ,
+                            'Tissue': organ, 'Center': 'Unknown', 'Rep': '1',
+                            'Chrom': chrom, 'Start': int(pos), 'End': int(pos) + 1,
+                            'VCF_Pos': f"{chrom}:{pos}", 'Evidence_Span': f"{chrom}:{pos}-{pos}",
+                            'Discovery_Source': ds,
+                            'Source': 'Palmer_TSV',
+                            'Status': 'Palmer_Validated',
+                            'Palmer_Alt': metrics.get('Palmer_Alt'),
+                            'Palmer_Depth': metrics.get('Palmer_Depth'),
+                            'Palmer_VAF': metrics.get('Palmer_VAF'),
+                            'Palmer_QC': metrics.get('Palmer_QC'),
+                            'Alt': metrics.get('Palmer_Alt', 0), 
+                            'Total_Depth': metrics.get('Palmer_Depth', 0), 
+                            'VAF%': metrics.get('Palmer_VAF', 0.0),
+                            'Evidence_Tier': 'Tier 3' # Palmer-only is Tier 3
+                        }
+                        new_rows.append(new_row)
+                        
+        if new_rows:
+            all_details = pd.concat([all_details, pd.DataFrame(new_rows)], ignore_index=True)
+            new_sums = []
+            for r in new_rows:
+                new_sums.append({
+                    'NUMT_ID': r['NUMT_ID'],
+                    'Organ': r['Organ'],
+                    'Organ_Confidence': 'HC'
+                })
+            all_summaries = pd.concat([all_summaries, pd.DataFrame(new_sums)], ignore_index=True)
+            
+        # Convert columns to nullable Int64 so they print nicely as integers instead of floats (like 4.0)
+        all_details['Palmer_Alt'] = pd.to_numeric(all_details['Palmer_Alt'], errors='coerce').astype('Int64')
+        all_details['Palmer_Depth'] = pd.to_numeric(all_details['Palmer_Depth'], errors='coerce').astype('Int64')
+            
+        # Finally, calculate Evidence_Tier for ALL rows
+        for idx, row in all_details.iterrows():
+            if row['Organ'] == 'Palmer_Seed':
+                continue
+            status = row.get('Status', '')
+            ds = row.get('Discovery_Source', '')
+            
+            if status == 'Validated':
+                if ds == 'Both':
+                    all_details.at[idx, 'Evidence_Tier'] = 'Tier 1'
+                elif ds == 'Palmer_Only':
+                    all_details.at[idx, 'Evidence_Tier'] = 'Tier 2'
+                else:
+                    all_details.at[idx, 'Evidence_Tier'] = 'Tier 3'
+            elif status == 'Palmer_Validated':
+                all_details.at[idx, 'Evidence_Tier'] = 'Tier 3'
+            else:
+                all_details.at[idx, 'Evidence_Tier'] = 'LowConf'
+
     # 1. Replicate_Detail.csv
     if not all_details.empty:
-        front = ['SampleID','NUMT_ID','Organ','Tissue','Center','Rep','Source']
+        front = ['SampleID','NUMT_ID','Organ','Tissue','Center','Rep','Source', 'Evidence_Tier', 'Status']
         rest = [c for c in all_details.columns if c not in front]
         all_details = all_details[[c for c in front if c in all_details.columns] + rest]
         all_details.sort_values(['NUMT_ID','Organ','Center','Rep'], inplace=True)
@@ -768,24 +1039,36 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
     for nid in all_summaries['NUMT_ID'].unique():
         ns = all_summaries[all_summaries['NUMT_ID'] == nid]
         nd = all_details[all_details['NUMT_ID'] == nid] if not all_details.empty else pd.DataFrame()
-        det = ns[ns['Organ_Confidence'] != 'Not_Detected']['Organ'].tolist()
-        val = ns[ns['Organ_Confidence'].isin(VALID_CONFS)]['Organ'].tolist()
+        
+        # Exclude dummy Palmer_Seed rows from counts
+        det = ns[(ns['Organ_Confidence'] != 'Not_Detected') & (ns['Organ'] != 'Palmer_Seed')]['Organ'].tolist()
+        val = ns[(ns['Organ_Confidence'].isin(VALID_CONFS)) & (ns['Organ'] != 'Palmer_Seed')]['Organ'].tolist()
         nv  = len(val)
         nc  = classify_numt(nv, n_organs)
+        
         best = 'Not_Detected'
         for c in CONFIDENCE_TIERS:
-            if c in ns['Organ_Confidence'].values: best = c; break
-        coords, mito_src = '', ''
+            # check confidence tiers strictly on real organs
+            if c in ns[ns['Organ'] != 'Palmer_Seed']['Organ_Confidence'].values: best = c; break
+            
+        coords, mito_src, d_src = '', '', 'Unknown'
         if not nd.empty:
             ref = nd[nd['Status']=='Validated']
             rr  = ref.iloc[0] if not ref.empty else nd.iloc[0]
-            coords   = rr.get('Evidence_Span', rr.get('VCF_Pos',''))
-            mito_src = rr.get('Mito_Source', '')
+            c_span = rr.get('Evidence_Span')
+            c_pos = rr.get('VCF_Pos')
+            coords = c_span if pd.notna(c_span) and str(c_span).strip() != '' else (c_pos if pd.notna(c_pos) else '')
+            _mito = rr.get('Mito_Source')
+            mito_src = _mito if pd.notna(_mito) and str(_mito).strip() != '' else ''
+            _dsrc = rr.get('Discovery_Source')
+            d_src = _dsrc if pd.notna(_dsrc) and str(_dsrc).strip() != '' else 'Unknown'
+            
         master.append({
             'Global_NUMT_ID':       nid,
             'SampleID':             sample_id,
             'Coordinates':          coords,
             'Mito_Source':          mito_src,
+            'Discovery_Source':     d_src,
             'NUMT_Class':           nc,
             'Best_Confidence':      best,
             'Validated_Organs':     nv,
@@ -799,17 +1082,18 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
     logging.info(f"  Master_Summary: {len(mdf)} NUMTs → {mp}")
 
     # 3. Presence_Matrix.csv — enriched with all Master_Summary fields
-    #
-    #    Metadata column order (before organ VAF columns):
-    #      Coordinates | Mito_Source | NUMT_Class | Best_Confidence |
-    #      Total_Validated_Organs | Total_Organs | Validated_Organ_List | Missing_Organ_List
-    #
-    #    Stage 2 PRESENCE_META_COLS must list all eight columns above.
+    pp = os.path.join(donor_dir, f"{sample_id}_Presence_Matrix.csv")
     if not all_details.empty:
-        val_d = all_details[all_details['Status'] == 'Validated']
+        # Ignore Palmer_Seed dummy organ for pivoting
+        # Filter to only keep validated calls or Palmer calls (regardless of validation)
+        keep_numts = mdf[(mdf['Validated_Organs'] > 0) | (mdf['Discovery_Source'].str.contains('Palmer'))]['Global_NUMT_ID']
+
+        val_d = all_details[(all_details['Status'].isin(['Validated', 'Palmer_Validated'])) & (all_details['Organ'] != 'Palmer_Seed')]
         if not val_d.empty:
             matrix = val_d.pivot_table(index='NUMT_ID', columns='Organ', values='VAF%',
                                        aggfunc='mean', fill_value=0)
+            # Ensure we only include valid calls + Palmer seeds
+            matrix = matrix.reindex(keep_numts).fillna(0)
             matrix = matrix.round(2)
             meta_cols = {}
             for nid in matrix.index:
@@ -819,6 +1103,7 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
                     meta_cols[nid] = {
                         'Coordinates':          r['Coordinates'],
                         'Mito_Source':          r['Mito_Source'],
+                        'Discovery_Source':     r['Discovery_Source'],
                         'NUMT_Class':           r['NUMT_Class'],
                         'Best_Confidence':      r['Best_Confidence'],
                         'Total_Validated_Organs': r['Validated_Organs'],
@@ -828,7 +1113,7 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
                     }
                 else:
                     meta_cols[nid] = {
-                        'Coordinates': '', 'Mito_Source': '',
+                        'Coordinates': '', 'Mito_Source': '', 'Discovery_Source': '',
                         'NUMT_Class': '', 'Best_Confidence': 'Not_Detected',
                         'Total_Validated_Organs': 0, 'Total_Organs': n_organs,
                         'Validated_Organ_List': '', 'Missing_Organ_List': '',
@@ -836,10 +1121,17 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
             meta_df = pd.DataFrame.from_dict(meta_cols, orient='index')
             meta_df.index.name = 'NUMT_ID'
             matrix = pd.concat([meta_df, matrix], axis=1)
-            pp = os.path.join(donor_dir, f"{sample_id}_Presence_Matrix.csv")
             matrix.to_csv(pp)
             logging.info(f"  Presence_Matrix: {len(matrix)} NUMTs × "
                          f"{len(matrix.columns) - 8} organs (+ 8 metadata cols) → {pp}")
+        else:
+            empty_cols = ['Coordinates', 'Mito_Source', 'Discovery_Source', 'NUMT_Class', 'Best_Confidence', 'Total_Validated_Organs', 'Total_Organs', 'Validated_Organ_List', 'Missing_Organ_List']
+            pd.DataFrame(columns=empty_cols).to_csv(pp, index_label='NUMT_ID')
+            logging.info(f"  Presence_Matrix: 0 NUMTs → {pp}")
+    else:
+        empty_cols = ['Coordinates', 'Mito_Source', 'Discovery_Source', 'NUMT_Class', 'Best_Confidence', 'Total_Validated_Organs', 'Total_Organs', 'Validated_Organ_List', 'Missing_Organ_List']
+        pd.DataFrame(columns=empty_cols).to_csv(pp, index_label='NUMT_ID')
+        logging.info(f"  Presence_Matrix: 0 NUMTs → {pp}")
 
     # 4. Coverage_Gap_Report.csv
     if not all_details.empty and not all_summaries.empty:
@@ -852,14 +1144,16 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
             if not nd.empty:
                 ref_row = nd[nd['Status']=='Validated']
                 rr = ref_row.iloc[0] if not ref_row.empty else nd.iloc[0]
-                coords = rr.get('Evidence_Span', rr.get('VCF_Pos', ''))
-            tissues_with_data  = set(nd['Tissue'].unique()) if not nd.empty else set()
-            tissues_validated  = set(nd[nd['Status']=='Validated']['Tissue'].unique()) if not nd.empty else set()
+                _cs = rr.get('Evidence_Span')
+                _cp = rr.get('VCF_Pos')
+                coords = _cs if pd.notna(_cs) and str(_cs).strip() != '' else (_cp if pd.notna(_cp) else '')
+            tissues_with_data  = set(nd[nd['Tissue']!='Palmer_Seed']['Tissue'].unique()) if not nd.empty else set()
+            tissues_validated  = set(nd[(nd['Status']=='Validated') & (nd['Tissue']!='Palmer_Seed')]['Tissue'].unique()) if not nd.empty else set()
             tissues_lowconf    = tissues_with_data - tissues_validated
             tissues_missing    = set(all_tissues) - tissues_with_data
             best = 'Not_Detected'
             for c in CONFIDENCE_TIERS:
-                if c in ns['Organ_Confidence'].values: best = c; break
+                if c in ns[ns['Organ'] != 'Palmer_Seed']['Organ_Confidence'].values: best = c; break
             gap_rows.append({
                 'NUMT_ID':           nid,
                 'Coordinates':       coords,
@@ -872,12 +1166,18 @@ def generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, s
                 'LowConf_Reps':      ','.join(sorted(tissues_lowconf)),
                 'Missing_Reps':      ','.join(sorted(tissues_missing)),
             })
-        gap_df = pd.DataFrame(gap_rows)
-        gap_df = gap_df[gap_df['N_Reps_Validated'] > 0]
-        gap_df = gap_df.sort_values(['N_Reps_Missing', 'NUMT_ID'], ascending=[False, True])
+        gap_df = pd.DataFrame(gap_rows).sort_values('NUMT_ID')
         gp = os.path.join(reports_dir, f"{sample_id}_Coverage_Gap_Report.csv")
         gap_df.to_csv(gp, index=False)
-        logging.info(f"  Coverage_Gap_Report: {len(gap_df)} NUMTs with gaps → {gp}")
+        logging.info(f"  Coverage_Gap_Report: {len(gap_df)} missing points → {gp}")
+
+    # Log Evidence Tier Summary
+    if not all_details.empty and 'Evidence_Tier' in all_details.columns:
+        valid_details = all_details[all_details['Organ'] != 'Palmer_Seed']
+        tier_counts = valid_details['Evidence_Tier'].value_counts()
+        logging.info("  --- Evidence Tier Summary (Organ-Level) ---")
+        for t, count in tier_counts.items():
+            logging.info(f"    {t}: {count} occurrences")
 
 # ==========================================
 # MAIN
@@ -892,6 +1192,7 @@ def main():
     parser.add_argument("--mito_ref", default=os.environ.get("MITO_REF", "Reference/chrM.fa"), help="chrM.fa path")
     parser.add_argument("--ref", default=os.environ.get("REF_FASTA", ""), help="Human ref FASTA path")
     parser.add_argument("--cluster_dist", type=int, default=None, help="Override clustering distance (bp). Default: auto from insert size, capped at 1000bp")
+    parser.add_argument("--palmer_dir", default=None, help="Path to Palmer calls directory")
     parser.add_argument("--keep_tmp", action="store_true", help="Keep intermediate .fa/.psl files")
     parser.add_argument("--dry_run", action="store_true", help="Parse manifest & create Union VCFs only (no BAM I/O)")
     args = parser.parse_args()
@@ -949,21 +1250,24 @@ def main():
         logger.info(f"--- TOTAL: {time.time()-start_main:.2f}s ---"); return
 
     if not all_details_list:
-        logger.warning("No validated NUMTs found. Pipeline complete."); return
-    all_details = pd.concat(all_details_list, ignore_index=True)
-    all_summaries = pd.concat(all_summaries_list, ignore_index=True)
+        logger.warning("No validated NUMTs found from raw alignments. Continuing to Palmer merge.")
+        all_details = pd.DataFrame()
+        all_summaries = pd.DataFrame()
+    else:
+        all_details = pd.concat(all_details_list, ignore_index=True)
+        all_summaries = pd.concat(all_summaries_list, ignore_index=True)
 
     # Step 2.5: Global Re-clustering (merge per-organ IDs into global IDs)
-    all_details, all_summaries = recluster_global_numts(
-        all_details, all_summaries, sample_id, cluster_dist=MAX_CLUSTER_DIST)
+    all_details, all_summaries, palmer_data_dict = recluster_global_numts(
+        all_details, all_summaries, sample_id, palmer_dir=args.palmer_dir, cluster_dist=MAX_CLUSTER_DIST)
 
     # Step 3: Cross-Tissue Rescue
     all_details, all_summaries = run_cross_tissue_rescue(
         all_summaries, all_details, manifest_df, donor_dir,
-        sample_id, args.mito_ref, args.ref, args.blat, args.keep_tmp)
+        sample_id, args.mito_ref, args.ref, args.blat, args.keep_tmp, palmer_data_dict=palmer_data_dict)
 
     # Step 4: Final Classification & Output
-    generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, sample_id)
+    generate_final_outputs(all_details, all_summaries, manifest_df, donor_dir, sample_id, palmer_data_dict)
 
     logger.info(f"--- TOTAL PIPELINE RUNTIME: {time.time()-start_main:.2f}s ---")
 

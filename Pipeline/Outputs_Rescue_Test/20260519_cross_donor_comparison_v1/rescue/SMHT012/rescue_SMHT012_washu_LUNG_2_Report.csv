@@ -1,0 +1,7 @@
+SV_ID,VCF_Pos,Evidence_Span,Nuc_Len,Mito_Source,Mito_Len,Alt,Ref_Avg,Noisy_Reads,Total_Depth,Noise_Ratio,VAF%,Evidence_Type,Strand_Ratio,Status
+POP_NUMT_0017,chr16:87222350,chr16:87222366-87222418,52,5305-5327,22,5,37.5,233,276,5.49,11.76,"SoftClip_Right,SplitRead_Full",0.4,LowConf
+POP_NUMT_0018,chr16:89045944,chr16:89045945-89046073,128,5295-5325,30,8,31.0,104,143,2.67,20.51,SplitRead_Full,0.5,Validated
+POP_NUMT_0019,chr18:47853280,chr18:47853306-47853337,31,8074-8105,31,1,18.5,7,27,0.38,5.13,SplitRead_Full,1.0,LowConf
+POP_NUMT_0023,chr21:9676443,chr21:9676568-9676694,126,13157-13227,70,15,45.5,130,191,2.16,24.79,"DiscordantPair_Full,SoftClip_Left,SplitRead_Full",0.67,Validated
+POP_NUMT_0024,chr21:10014853,chr21:10014897-10014939,42,5779-5820,41,22,49.0,30,101,0.42,30.99,SplitRead_Full,0.14,LowConf_StrandBias
+POP_NUMT_0041,chrX:275207,chrX:275212-275438,226,8052-8133,81,16,33.0,94,143,1.92,32.65,"SoftClip_Left,SoftClip_Right,SplitRead_Full",0.81,LowConf_StrandBias

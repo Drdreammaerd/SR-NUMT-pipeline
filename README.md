@@ -1,8 +1,8 @@
-# Short-Read NUMT Detection Pipeline (v1.3)
+# Short-Read NUMT Detection Pipeline (v1.4)
 
 ## Overview
 
-An end-to-end Snakemake pipeline for detecting Nuclear Mitochondrial DNA insertions (NUMTs) from short-read WGS data. Supports multi-tissue, multi-donor cohort analysis with BLAT-based validation and cross-donor cataloging.
+An end-to-end Snakemake pipeline for detecting Nuclear Mitochondrial DNA insertions (NUMTs) from short-read WGS data. **v1.4 features native Palmer Integration**, allowing long-read NUMT calls to be cross-validated and integrated directly with short-read Dinumt calls.
 
 This pipeline has been **unified into a single Snakemake orchestrator** that autonomously executes Stage 0 (Discovery), Stage 1 (Validation), and Stage 2 (Population Catalog). It is heavily optimized for cluster environments (LSF) and fully containerized via Docker.
 
@@ -16,8 +16,11 @@ CRAM/BAM files ──→ Stage 0 ──→ Stage 1 ──→ Bridge ──→ St
 | Stage | Output | Description |
 |-------|--------|-------------|
 | **0: Discovery** | `DONOR_final.tsv` | Extracts discordant read pairs, splits by chromosome, and runs optimized `dinumt` discovery. |
-| **1: Validation** | `Donor_Validation/` | Single-donor BLAT validation against chrM reference to confirm sequence homology. |
-| **2: Catalog** | `Population_Catalog/` | Merges all donors into a unified catalog, performs cross-donor rescue, and outputs the final `Population_Matrix.csv`. |
+| **1: Validation** | `Donor_Validation/` | Integrates Palmer (long-read) calls with Dinumt (short-read) calls. Performs single-donor BLAT validation to establish Evidence Tiers (e.g., Tier 1, Tier 2). |
+| **2: Catalog** | `Population_Catalog/` | Merges all donors into a unified catalog, performs cross-donor BAM rescue, integrates Palmer population files, and outputs the final `Population_Matrix.csv`. |
+
+> [!NOTE]
+> For a detailed explanation of all output columns, Palmer Evidence Tiers, and metadata across these three stages, please see the **[NUMT Data Dictionary](NUMT_SR_Dictionary.md)**.
 
 ## Quick Start
 
@@ -46,7 +49,7 @@ scratch_dir: "/path/to/your/scratch"     # Temporary fast-storage directory for 
 # 2. System Settings (Do not change)
 # ==========================================
 pipeline_dir: "/opt/numt-pipeline"
-docker_image: "dreammaerd/numt-pipeline:v1.3"
+docker_image: "dreammaerd/numt-pipeline:v1.4"
 
 # ==========================================
 # 3. Reference Genomes (Must match cluster)
@@ -120,6 +123,6 @@ Once submitted, the script returns immediately, and the pipeline runs autonomous
 
 ## Dependencies & Architecture
 
-- **Containerized:** The pipeline is entirely encapsulated within the `dreammaerd/numt-pipeline:v1.3` Docker image, meaning zero local dependencies (like Perl or Python packages) are required.
+- **Containerized:** The pipeline is entirely encapsulated within the `dreammaerd/numt-pipeline:v1.4` Docker image, meaning zero local dependencies (like Perl or Python packages) are required.
 - **Host Requirements:** Must be executed on a WashU RIS LSF cluster node with `bsub` available.
-- **Storage:** Hardcoded to mount `/scratch1`, `/storage1`, `/storage2`, and your `${HOME}` directory to the Docker containers. If your cluster uses different mounts, edit the `VOLUMES_STR` inside `run_numt_pipeline.sh`.
+- **Storage:** Hardcoded to mount `/scratch1`, `/storage1`, `/storage2`, `/storage3`, and your `${HOME}` directory to the Docker containers. If your cluster uses different mounts, edit the `VOLUMES_STR` inside `run_numt_pipeline.sh`.

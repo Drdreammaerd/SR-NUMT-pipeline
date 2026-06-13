@@ -109,13 +109,15 @@ def scan_directory(directory, donor_id=None, mode='SMAHT_BASED'):
 def generate_tissue_codes(files_info, mode='SMAHT_BASED'):
     """Generate tissue codes with numbering or use exact sample name."""
     if mode in ['INDIVIDUAL_BASED', 'FAMILY_BASED']:
-        # For non-SMaHT cohorts, we just use the filename exactly as the tissue name
+        # For non-SMaHT cohorts, enforce 4-part structure: {center}_NA_{tissue_tpc}_1
         for file_info in files_info:
-            file_info['tissue_code'] = file_info['tissue_tpc']
-            file_info['internal_code'] = file_info['tissue_tpc']
+            center = file_info.get('center_id', 'generic')
+            tissue_tpc = file_info.get('tissue_tpc', 'UNKNOWN')
+            file_info['tissue_code'] = f"{center}_NA_{tissue_tpc}_1"
+            file_info['internal_code'] = tissue_tpc
         return files_info
 
-    # SMaHT Mode: Generate coded tissue names (e.g., uwsc_BLOO_1)
+    # SMaHT Mode: Generate coded tissue names (e.g., merged_3AC_FBRO_1)
     tissue_counter = defaultdict(lambda: defaultdict(int))
     sorted_files = sorted(files_info, 
                          key=lambda x: (x['center_id'], 
@@ -130,7 +132,8 @@ def generate_tissue_codes(files_info, mode='SMAHT_BASED'):
         if internal_code:
             tissue_counter[center][internal_code] += 1
             count = tissue_counter[center][internal_code]
-            file_info['tissue_code'] = f"{center}_{internal_code}_{count}"
+            # Format: {Center}_{TissueCode}_{Organ}_{Rep}
+            file_info['tissue_code'] = f"{center}_{file_info['tissue_tpc']}_{internal_code}_{count}"
             file_info['internal_code'] = internal_code
             result.append(file_info)
         else:
@@ -320,7 +323,7 @@ def submit_dinumt_jobs(metadata_file, helper_script, log_dir, dinumt_output_dir=
         
         # Check if VCF already exists
         if skip_existing and dinumt_output_dir:
-            vcf_path = Path(dinumt_output_dir) / f"{donor_id}_fullBAM_AllNumts" / f"{tissue}.vcf"
+            vcf_path = Path(dinumt_output_dir) / f"{donor_id}_fullBAM_AllNumts" / f"{donor_id}_{tissue}.vcf"
             if vcf_path.exists():
                 print(f"SKIP: [{idx+1}/{len(df)}] {tissue} - VCF already exists")
                 skipped_count += 1
@@ -377,7 +380,7 @@ def extract_dinumt_counts(metadata_file, dinumt_output_dir):
         found = 0
         for idx, row in df.iterrows():
             tissue = row['TISSUE']
-            vcf_path = vcf_dir / f"{tissue}.vcf"
+            vcf_path = vcf_dir / f"{donor_id}_{tissue}.vcf"
             
             if vcf_path.exists():
                 # Count non-header lines

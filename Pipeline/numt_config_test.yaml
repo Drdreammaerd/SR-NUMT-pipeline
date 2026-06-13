@@ -1,0 +1,24 @@
+# ============================================================
+# NUMT Pipeline — TEST Configuration
+# ============================================================
+# Uses sample_sheet_test.tsv (1 donor only) for validation.
+# After successful test, switch to sample_sheet.tsv + numt_config.yaml
+# ============================================================
+
+sample_sheet: "Pipeline/sample_sheet_test.tsv"
+output_base: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/SMAHT_DONOR_NUMT/test_run_v2"
+scratch_dir: "/scratch1/fs1/jin810/numt_scratch/test_run"
+
+pipeline_dir: "/opt/numt-pipeline"
+docker_image: "dreammaerd/numt-pipeline:v1.0"
+
+ref_fasta: "/storage2/fs1/epigenome/Active/shared_smaht/References/SMAHT_References/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa"
+ref_validation: "/storage1/fs1/jin810/Active/References/GATK-SV/resources_hg38_json/reference_fasta/Homo_sapiens_assembly38.fasta"
+
+blat_bin: "/opt/conda/bin/blat"
+mito_ref: "/opt/numt-pipeline/Reference/chrM.fa"
+dinumt_script: "/opt/numt-pipeline/Custom_Tools/dinumt_AllNumts.pl"
+dinumt_mask: "/opt/numt-pipeline/Custom_Tools/refNumts.38.bed"
+scripts_dir: "/opt/numt-pipeline/helpers"
+
+skip_rescue: true

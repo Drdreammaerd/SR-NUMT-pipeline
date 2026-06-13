@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SMK_FILE="${SCRIPT_DIR}/numt_pipeline.smk"
 
 SNAKEMAKE_ARGS=()
-CONFIG_FILE="${PWD}/numt_config.yaml"
+CONFIG_FILE="${SCRIPT_DIR}/numt_config.yaml"
 
 # Default LSF parameters
 LSF_QUEUE="general"
@@ -46,16 +46,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-if [[ ! -f "${CONFIG_FILE}" ]]; then
-    echo "============================================================"
-    echo " ERROR: Configuration file not found!"
-    echo " Expected: ${CONFIG_FILE}"
-    echo " Please copy 'numt_config_template.yaml' to 'numt_config.yaml'"
-    echo " and edit it with your parameters before running."
-    echo "============================================================"
-    exit 1
-fi
 
 CONFIG_BASENAME=$(basename "${CONFIG_FILE}" .yaml)
 # Extract output_base from config, default to SCRIPT_DIR if not found
@@ -95,7 +85,8 @@ echo "============================================================"
 MOUNT_SCRATCH1="${SCRATCH1:-/scratch1/fs1/jin810}"
 MOUNT_STORAGE1="${STORAGE1:-/storage1/fs1/jin810/Active}"
 MOUNT_STORAGE2="${STORAGE2:-/storage2/fs1/epigenome/Active}"
-VOLUMES_STR="${MOUNT_SCRATCH1}:${MOUNT_SCRATCH1} ${MOUNT_STORAGE1}:${MOUNT_STORAGE1} ${MOUNT_STORAGE2}:${MOUNT_STORAGE2} ${HOME}:${HOME}"
+MOUNT_STORAGE3="${STORAGE3:-/storage3/fs1/smaht_analysis/Active}"
+VOLUMES_STR="${MOUNT_SCRATCH1}:${MOUNT_SCRATCH1} ${MOUNT_STORAGE1}:${MOUNT_STORAGE1} ${MOUNT_STORAGE2}:${MOUNT_STORAGE2} ${MOUNT_STORAGE3}:${MOUNT_STORAGE3} ${HOME}:${HOME}"
 
 export LSF_DOCKER_VOLUMES="${VOLUMES_STR}"
 

@@ -7,13 +7,13 @@
 #   Stage 2: python, pysam, pandas, blat (population catalog)
 #
 # Build (from repo root):
-#   docker build -platform linux/amd64 -f Docker/Dockerfile -t dreammaerd/numt-pipeline:v1.2 .
+#   docker build -platform linux/amd64 -f Docker/Dockerfile -t dreammaerd/numt-pipeline:v1.4 .
 #
 # Push:
-#   docker push dreammaerd/numt-pipeline:v1.2
+#   docker push dreammaerd/numt-pipeline:v1.4
 #
 # Verify:
-#   docker run --rm dreammaerd/numt-pipeline:v1.2 bash -c \
+#   docker run --rm dreammaerd/numt-pipeline:v1.4 bash -c \
 #     "samtools --version | head -1 && \
 #      python -c 'import pysam; print(f\"pysam {pysam.__version__}\")' && \
 #      blat 2>&1 | head -1 && \
@@ -64,15 +64,13 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda -c defaults \
     snakemake-minimal=8.13.0 \
     vcftools=0.1.16 \
     perl-app-cpanminus \
+    perl-math-cdf \
     && micromamba clean --all --yes
 
 # ---- Perl modules for dinumt ----
 USER root
-RUN cpanm --notest \
-    Getopt::Long \
-    List::Util \
-    Statistics::Descriptive \
-    Math::CDF
+RUN /opt/conda/bin/cpanm --notest \
+    Statistics::Descriptive
 
 # ---- Snakemake cluster executor plugin ----
 RUN /opt/conda/bin/pip install --no-cache-dir \
@@ -107,7 +105,7 @@ COPY Pipeline/3_build_population_catalog.py /opt/numt-pipeline/
 
 # Snakemake workflow
 COPY Pipeline/numt_pipeline.smk /opt/numt-pipeline/
-COPY Pipeline/numt_config_template.yaml  /opt/numt-pipeline/numt_config.yaml
+COPY Pipeline/numt_config.yaml  /opt/numt-pipeline/
 
 # Fix permissions so LSF user can read and execute scripts
 RUN chmod -R a+rX /opt/numt-pipeline

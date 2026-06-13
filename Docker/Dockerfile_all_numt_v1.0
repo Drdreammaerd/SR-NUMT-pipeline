@@ -1,0 +1,78 @@
+FROM mambaorg/micromamba:1.5.6
+
+# Switch to root for installations
+USER root
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Chicago
+ENV MAMBA_ROOT_PREFIX=/opt/conda
+
+# Install system dependencies needed for building and dinumt
+RUN apt-get update && apt-get install -y \
+    git \
+    wget \
+    curl \
+    gcc \
+    g++ \
+    make \
+    perl \
+    cpanminus \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to default micromamba user
+USER $MAMBA_USER
+
+# Install all tools via mamba/conda (much faster and cleaner)
+RUN micromamba install -y -n base -c conda-forge -c bioconda \
+    snakemake>=8.0 \
+    python=3.11 \
+    pandas \
+    numpy \
+    scipy \
+    samtools \
+    bedtools \
+    exonerate \
+    vcftools \
+    perl-vcftools-vcf \
+    && micromamba clean --all --yes
+
+# Switch back to root to install Perl modules and dinumt
+USER root
+
+# Install required Perl modules for dinumt
+RUN cpanm --notest \
+    Getopt::Long \
+    List::Util \
+    Statistics::Descriptive \
+    Math::CDF
+
+# Install dinumt from GitHub
+WORKDIR /opt
+RUN git clone https://github.com/mills-lab/dinumt.git && \
+    chmod +x /opt/dinumt/*.pl
+
+# Add dinumt to PATH
+ENV PATH="/opt/dinumt:${PATH}"
+
+# Create python symlink for convenience
+RUN ln -sf /opt/conda/bin/python /usr/local/bin/python && \
+    ln -sf /opt/conda/bin/pip /usr/local/bin/pip
+
+# Install Snakemake executor plugin for cluster execution
+RUN /opt/conda/bin/pip install --no-cache-dir \
+    snakemake-executor-plugin-cluster-generic
+
+# Copy and setup entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Set working directory
+WORKDIR /data
+
+# Set entrypoint to activate environment
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+# Default command
+CMD ["/bin/bash"]

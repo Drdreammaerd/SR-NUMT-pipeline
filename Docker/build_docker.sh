@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_DIR="$(pwd)"
-IMAGE_NAME="dreammaerd/numt-pipeline:v1.3"
+IMAGE_NAME="dreammaerd/numt-pipeline:v1.4"
 LOG_DIR="${REPO_DIR}/Docker/logs"
 
 mkdir -p "$LOG_DIR"
@@ -69,4 +69,4 @@ echo " Done! Image pushed: ${IMAGE_NAME}"
 echo "============================================================"
 echo ""
 echo " Test on cluster:"
-echo "   bash Pipeline/run_numt_pipeline.sh --configfile Pipeline/numt_config_template.yaml --until all_discovery --dry-run"
+echo "   bash Pipeline/run_numt_pipeline.sh --configfile Pipeline/numt_config_test.yaml --until all_discovery --dry-run"
