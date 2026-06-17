@@ -651,17 +651,28 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
             validated = grp[grp['Status'].isin(['Validated', 'Palmer_Validated'])]
             all_rows = grp
             vaf = round(validated['VAF%'].mean(), 2) if not validated.empty else 0.0
-            alt = int(validated['Alt'].sum()) if not validated.empty else 0
-            dp = int(all_rows['Total_Depth'].fillna(0).mean()) if not all_rows.empty else 0
-            noisy = int(all_rows['Noisy_Reads'].fillna(0).mean()) if not all_rows.empty else 0
-            noise_ratio = round(all_rows['Noise_Ratio'].fillna(0).mean(), 2) if not all_rows.empty else 0.0
-            _sr = validated['Strand_Ratio'].mean() if not validated.empty else None
-            sr = round(_sr, 2) if pd.notna(_sr) else '.'
+            vaf = min(vaf, 100.0)
             
+            # Dinumt (Short Read) fields
+            if 'Alt' in all_rows.columns and all_rows['Alt'].notna().any():
+                if not validated.empty and validated['Alt'].notna().any():
+                    alt = int(validated['Alt'].dropna().sum())
+                else:
+                    alt = 0
+            else:
+                alt = '.'
+                
+            dp = int(all_rows['Total_Depth'].dropna().mean()) if 'Total_Depth' in all_rows.columns and all_rows['Total_Depth'].notna().any() else '.'
+            noisy = int(all_rows['Noisy_Reads'].dropna().mean()) if 'Noisy_Reads' in all_rows.columns and all_rows['Noisy_Reads'].notna().any() else '.'
+            noise_ratio = round(all_rows['Noise_Ratio'].dropna().mean(), 2) if 'Noise_Ratio' in all_rows.columns and all_rows['Noise_Ratio'].notna().any() else '.'
+            
+            sr = round(validated['Strand_Ratio'].dropna().mean(), 2) if not validated.empty and 'Strand_Ratio' in validated.columns and validated['Strand_Ratio'].notna().any() else '.'
+
             # Palmer metrics
-            p_alt = int(all_rows['Palmer_Alt'].fillna(0).mean()) if 'Palmer_Alt' in all_rows.columns and not all_rows.empty else 0
-            p_dp = int(all_rows['Palmer_Depth'].fillna(0).mean()) if 'Palmer_Depth' in all_rows.columns and not all_rows.empty else 0
-            p_vaf = round(all_rows['Palmer_VAF'].fillna(0.0).mean(), 2) if 'Palmer_VAF' in all_rows.columns and not all_rows.empty else 0.0
+            p_alt = int(all_rows['Palmer_Alt'].dropna().mean()) if 'Palmer_Alt' in all_rows.columns and all_rows['Palmer_Alt'].notna().any() else '.'
+            p_dp = int(all_rows['Palmer_Depth'].dropna().mean()) if 'Palmer_Depth' in all_rows.columns and all_rows['Palmer_Depth'].notna().any() else '.'
+            p_vaf = round(all_rows['Palmer_VAF'].dropna().mean(), 2) if 'Palmer_VAF' in all_rows.columns and all_rows['Palmer_VAF'].notna().any() else '.'
+            p_vaf = min(p_vaf, 100.0) if isinstance(p_vaf, float) else p_vaf
             
             # Evidence Tier
             tier = 'Tier 3'
@@ -794,11 +805,11 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
                             f"{m['noise_ratio']}:{m['sr']}:{m['cf']}:{m['src']}:"
                             f"{m['p_alt']}:{m['p_dp']}:{m['p_vaf']}:{m['tier']}")
                     elif did not in cl['donor_members']:
-                        # Donor has this organ but NUMT not detected
-                        sample_values.append('0/0:0.0:0:0:0:0.0:0.0:ND:.:0:0:0.0:Tier3')
+                        # Inter-donor negative: entire Donor doesn't have this NUMT
+                        sample_values.append('0/0:0.0:.:0:.:.:.:ND:.:.:.:.:Tier3')
                     else:
-                        # Donor doesn't have this organ
-                        sample_values.append('./.:0.0:0:0:0:0.0:0.0:ND:.:0:0:0.0:Tier3')
+                        # Intra-donor negative: Donor has NUMT elsewhere, but not detected in this sequenced organ
+                        sample_values.append('0/0:0.0:.:0:.:.:.:ND:.:.:.:.:Tier3')
 
             row = [chrom, str(start), cl['pop_numt_id'], 'N', '<NUMT>',
                    '.', filt, info_str, format_str] + sample_values
