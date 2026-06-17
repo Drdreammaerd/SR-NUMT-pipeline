@@ -214,17 +214,17 @@ A standard, multi-sample VCF representing the population catalog. Suitable for g
 | Field | Meaning |
 |-------|---------|
 | `GT` | Genotype (`0/1` = detected, `0/0` = sequenced but not detected). *Note: Columns are only generated for sequenced samples, so `./.` (unsequenced) will not appear.* |
-| `VAF` | Mean Variant Allele Frequency. |
-| `DP` | Mean Depth. |
+| `VAF` | Variant Allele Frequency. |
+| `DP` | Total Depth. |
 | `ALT` | Alt read count. |
 | `NR` | Noisy read count. |
 | `NRR` | Noise Ratio. |
 | `SR` | Strand Ratio. |
 | `CF` | Confidence (`HC`=High, `MC`=Medium, `ND`=Not Detected). |
 | `SRC` | Source (`D`=Discovery, `R`=Stage2_Rescue, `DP`=Discovery+Palmer, `RP`=Rescue+Palmer, `P`=PalmerOnly). |
-| `P_ALT` | Mean Palmer Alt Read Count. |
-| `P_DP` | Mean Palmer Depth. |
-| `P_VAF` | Mean Palmer VAF (%). |
+| `P_ALT` | Palmer Alt Read Count. |
+| `P_DP` | Palmer Depth. |
+| `P_VAF` | Palmer VAF (%). |
 | `TIER` | Evidence Tier (`Tier 1`, `Tier 2`, `Tier 3`). |
 
 > **Note on Missing Values and VAF Caps:**

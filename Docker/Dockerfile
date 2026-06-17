@@ -1,5 +1,6 @@
 # ============================================================
 # NUMT Pipeline — Unified Docker Image
+# Author: Yung-Chun Wang <yung-chun@wustl.edu>
 # ============================================================
 # Contains ALL dependencies for the full pipeline:
 #   Stage 0: samtools, perl + dinumt modules, snakemake
@@ -24,6 +25,8 @@
 # ============================================================
 
 FROM mambaorg/micromamba:1.5.6
+
+LABEL maintainer="Yung-Chun Wang <yung-chun@wustl.edu>"
 
 USER root
 

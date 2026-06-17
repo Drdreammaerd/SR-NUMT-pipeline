@@ -301,7 +301,7 @@ def read_palmer_candidates(palmer_dir, sample_id):
                 palmer_data_dict[(chrom, pos)][organ] = {
                     'Palmer_Alt': int(row['n_unique_reads']) if pd.notna(row['n_unique_reads']) else 0,
                     'Palmer_Depth': int(row['depth_pileup_sum']) if pd.notna(row['depth_pileup_sum']) else 0,
-                    'Palmer_VAF': round(float(row['vaf_palmer']) * 100, 2) if pd.notna(row['vaf_palmer']) else 0.0,
+                    'Palmer_VAF': round(min(float(row['vaf_palmer']), 1.0) * 100, 2) if pd.notna(row['vaf_palmer']) else 0.0,
                     'Palmer_QC': str(row['numt_qc_tier'])
                 }
         except Exception as e:
