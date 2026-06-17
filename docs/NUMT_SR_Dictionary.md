@@ -213,7 +213,7 @@ A standard, multi-sample VCF representing the population catalog. Suitable for g
 
 | Field | Meaning |
 |-------|---------|
-| `GT` | Genotype (`0/1` = detected, `0/0` = not detected, `./.` = no data). |
+| `GT` | Genotype (`0/1` = detected, `0/0` = sequenced but not detected). *Note: Columns are only generated for sequenced samples, so `./.` (unsequenced) will not appear.* |
 | `VAF` | Mean Variant Allele Frequency. |
 | `DP` | Mean Depth. |
 | `ALT` | Alt read count. |
@@ -226,6 +226,10 @@ A standard, multi-sample VCF representing the population catalog. Suitable for g
 | `P_DP` | Mean Palmer Depth. |
 | `P_VAF` | Mean Palmer VAF (%). |
 | `TIER` | Evidence Tier (`Tier 1`, `Tier 2`, `Tier 3`). |
+
+> **Note on Missing Values and VAF Caps:**
+> - **Missing Metrics:** In cases where a NUMT was not detected by a specific caller (e.g., Palmer-Only calls lacking Dinumt metrics, or tissues where the NUMT was completely absent), the unavailable numeric fields (such as `DP`, `ALT`, `P_DP`, `P_ALT`) are represented by the VCF standard missing value `.` rather than `0`.
+> - **VAF Cap:** Both `VAF` and `P_VAF` are strictly capped at a maximum of `100.0` (%) to gracefully handle artificial inflation from multi-segment summation artifacts in Palmer.
 
 ### 4. `variant_calls/Population_NUMTs_<date>.bed`
 
