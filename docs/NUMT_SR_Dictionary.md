@@ -229,7 +229,7 @@ A standard, multi-sample VCF representing the population catalog. Suitable for g
 
 > **Note on Missing Values and VAF Caps:**
 > - **Missing Metrics:** In cases where a NUMT was not detected by a specific caller (e.g., Palmer-Only calls lacking Dinumt metrics, or tissues where the NUMT was completely absent), the unavailable numeric fields (such as `DP`, `ALT`, `P_DP`, `P_ALT`) are represented by the VCF standard missing value `.` rather than `0`.
-> - **VAF Cap:** Both `VAF` and `P_VAF` are strictly capped at a maximum of `100.0` (%) to gracefully handle artificial inflation from multi-segment summation artifacts in Palmer.
+> - **VAF Cap:** The `P_VAF` metric is strictly capped at a maximum of `100.0` (%) to gracefully handle artificial inflation from multi-segment summation artifacts in Palmer.
 
 ### 4. `variant_calls/Population_NUMTs_<date>.bed`
 
