@@ -89,12 +89,13 @@ def setup_logger(log_dir):
 
 
 def create_run_dir(out_dir):
-    """Create a versioned run directory: {YYYYMMDD}_cross_donor_comparison_v{N}."""
-    date_stamp = datetime.now().strftime('%Y%m%d')
-    existing = glob.glob(os.path.join(out_dir, f"{date_stamp}_cross_donor_comparison_v*"))
-    version = len(existing) + 1
-    run_dir = os.path.join(out_dir, f"{date_stamp}_cross_donor_comparison_v{version}")
+    """Create a fixed run directory: cross_donor_comparison."""
+    run_dir = os.path.join(out_dir, "cross_donor_comparison")
     os.makedirs(run_dir, exist_ok=True)
+    
+    # We keep date_stamp for internal logging or other purposes if needed, 
+    # but it will not be used in filenames anymore.
+    date_stamp = datetime.now().strftime('%Y%m%d')
     return run_dir, date_stamp
 
 # ==========================================
@@ -312,7 +313,7 @@ def classify_population(cluster, donors_data, all_donor_ids):
 # ==========================================
 # OUTPUT GENERATION
 # ==========================================
-def generate_population_catalog(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
+def generate_population_catalog(clusters, donors_data, all_donor_ids, out_dir, date_stamp=None):
     """Generate Population_NUMT_Catalog.csv — one row per POP_NUMT."""
     rows = []
     for cl in clusters:
@@ -350,13 +351,13 @@ def generate_population_catalog(clusters, donors_data, all_donor_ids, out_dir, d
     df = pd.DataFrame(rows)
     catalog_dir = os.path.join(out_dir, 'catalog')
     os.makedirs(catalog_dir, exist_ok=True)
-    path = os.path.join(catalog_dir, f'Population_NUMT_Catalog_{date_stamp}.csv')
+    path = os.path.join(catalog_dir, 'Population_NUMT_Catalog.csv')
     df.to_csv(path, index=False)
     logging.info(f"  Population_NUMT_Catalog: {len(df)} NUMTs → {path}")
     return df
 
 
-def generate_id_mapping(clusters, donors_data, all_donor_ids, out_dir, date_stamp,
+def generate_id_mapping(clusters, donors_data, all_donor_ids, out_dir,
                        rescue_report_df=None):
     """Generate Cross_Donor_ID_Mapping.csv — one row per POP_NUMT × Donor."""
     # Build rescue lookup: (pop_id, donor) → rescue row
@@ -438,7 +439,7 @@ def generate_id_mapping(clusters, donors_data, all_donor_ids, out_dir, date_stam
     df = pd.DataFrame(rows)
     details_dir = os.path.join(out_dir, 'details')
     os.makedirs(details_dir, exist_ok=True)
-    path = os.path.join(details_dir, f'Cross_Donor_ID_Mapping_{date_stamp}.csv')
+    path = os.path.join(details_dir, 'Cross_Donor_ID_Mapping.csv')
     df.to_csv(path, index=False)
     logging.info(f"  Cross_Donor_ID_Mapping: {len(df)} rows → {path}")
     return df
@@ -447,7 +448,7 @@ def generate_id_mapping(clusters, donors_data, all_donor_ids, out_dir, date_stam
 def format_sample_name(did, organ):
     return did if did == organ else f"{did}_{organ}"
 
-def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
+def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir):
     """Generate Cross_Donor_Presence_Matrix.csv — POP_NUMT × (Donor×Organ) VAF matrix."""
     # Collect all donor organs
     donor_organs = OrderedDict()
@@ -513,13 +514,13 @@ def generate_presence_matrix(clusters, donors_data, all_donor_ids, out_dir, date
             
     df = df[meta + ordered_organ_cols]
 
-    path = os.path.join(out_dir, f'Cross_Donor_Presence_Matrix_{date_stamp}.csv')
+    path = os.path.join(out_dir, 'Cross_Donor_Presence_Matrix.csv')
     df.to_csv(path, index=False)
     logging.info(f"  Cross_Donor_Presence_Matrix: {len(df)} NUMTs × {len(ordered_organ_cols)} samples → {path}")
     return df
 
 
-def generate_replicate_detail(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
+def generate_replicate_detail(clusters, donors_data, all_donor_ids, out_dir):
     """Generate Cross_Donor_Replicate_Detail.csv — per-replicate evidence for Presence Matrix NUMTs."""
     # Build mapping: donor_numt_id → pop_numt_id
     numt_to_pop = {}
@@ -562,7 +563,7 @@ def generate_replicate_detail(clusters, donors_data, all_donor_ids, out_dir, dat
 
     details_dir = os.path.join(out_dir, 'details')
     os.makedirs(details_dir, exist_ok=True)
-    path = os.path.join(details_dir, f'Cross_Donor_Replicate_Detail_{date_stamp}.csv')
+    path = os.path.join(details_dir, 'Cross_Donor_Replicate_Detail.csv')
     combined.to_csv(path, index=False)
     logging.info(f"  Cross_Donor_Replicate_Detail: {len(combined)} rows → {path}")
     
@@ -576,7 +577,7 @@ def generate_replicate_detail(clusters, donors_data, all_donor_ids, out_dir, dat
     return combined
 
 
-def generate_donor_summary(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
+def generate_donor_summary(clusters, donors_data, all_donor_ids, out_dir):
     """Generate Donor_Comparison_Summary.csv — one row per donor."""
     rows = []
     for did in all_donor_ids:
@@ -611,14 +612,13 @@ def generate_donor_summary(clusters, donors_data, all_donor_ids, out_dir, date_s
     df = pd.DataFrame(rows)
     catalog_dir = os.path.join(out_dir, 'catalog')
     os.makedirs(catalog_dir, exist_ok=True)
-    path = os.path.join(catalog_dir, f'Donor_Comparison_Summary_{date_stamp}.csv')
+    path = os.path.join(catalog_dir, 'Donor_Comparison_Summary.csv')
     df.to_csv(path, index=False)
     logging.info(f"  Donor_Comparison_Summary: {len(df)} donors → {path}")
     return df
 
 
-def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_stamp,
-                           detail_df):
+def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, detail_df):
     """
     Generate Population_NUMTs.vcf — standard VCF with per-organ sample columns.
 
@@ -708,7 +708,7 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
             }
 
     # Write VCF
-    vcf_path = os.path.join(out_dir, 'variant_calls', f'Population_NUMTs_{date_stamp}.vcf')
+    vcf_path = os.path.join(out_dir, 'variant_calls', 'Population_NUMTs.vcf')
     os.makedirs(os.path.dirname(vcf_path), exist_ok=True)
     with open(vcf_path, 'w') as f:
         # Header
@@ -820,9 +820,9 @@ def generate_population_vcf(clusters, donors_data, all_donor_ids, out_dir, date_
     return vcf_path
 
 
-def generate_population_bed(clusters, donors_data, all_donor_ids, out_dir, date_stamp):
+def generate_population_bed(clusters, donors_data, all_donor_ids, out_dir):
     """Generate Population_NUMTs.bed — BED6+ format."""
-    bed_path = os.path.join(out_dir, 'variant_calls', f'Population_NUMTs_{date_stamp}.bed')
+    bed_path = os.path.join(out_dir, 'variant_calls', 'Population_NUMTs.bed')
     os.makedirs(os.path.dirname(bed_path), exist_ok=True)
     with open(bed_path, 'w') as f:
         f.write('#chrom\tstart\tend\tname\tscore\tstrand\tpop_class\tn_donors\tmito_source\n')
@@ -1226,15 +1226,15 @@ Examples:
     # --- Step 4: Generate outputs ---
     logger.info("\n=== Step 4: Generating Outputs ===")
 
-    catalog_df = generate_population_catalog(clusters, donors_data, all_donor_ids, run_dir, date_stamp)
-    mapping_df = generate_id_mapping(clusters, donors_data, all_donor_ids, run_dir, date_stamp,
+    catalog_df = generate_population_catalog(clusters, donors_data, all_donor_ids, run_dir)
+    mapping_df = generate_id_mapping(clusters, donors_data, all_donor_ids, run_dir,
                                      rescue_report_df)
-    matrix_df = generate_presence_matrix(clusters, donors_data, all_donor_ids, run_dir, date_stamp)
-    detail_df = generate_replicate_detail(clusters, donors_data, all_donor_ids, run_dir, date_stamp)
-    summary_df = generate_donor_summary(clusters, donors_data, all_donor_ids, run_dir, date_stamp)
-    vcf_path = generate_population_vcf(clusters, donors_data, all_donor_ids, run_dir, date_stamp,
+    matrix_df = generate_presence_matrix(clusters, donors_data, all_donor_ids, run_dir)
+    detail_df = generate_replicate_detail(clusters, donors_data, all_donor_ids, run_dir)
+    summary_df = generate_donor_summary(clusters, donors_data, all_donor_ids, run_dir)
+    vcf_path = generate_population_vcf(clusters, donors_data, all_donor_ids, run_dir,
                                        detail_df)
-    bed_path = generate_population_bed(clusters, donors_data, all_donor_ids, run_dir, date_stamp)
+    bed_path = generate_population_bed(clusters, donors_data, all_donor_ids, run_dir)
 
     # --- Summary ---
     logger.info("\n=== Summary ===")
