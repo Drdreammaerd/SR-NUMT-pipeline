@@ -522,7 +522,8 @@ def run_numt_final_validator(psl_path, bam_path, vcf_path, output_csv, ref_fasta
             'Alt': alt_count, 'Ref_Avg': round(avg_ref,1), 'Noisy_Reads': int(noisy),
             'Total_Depth': total_depth, 'Noise_Ratio': round(noise_ratio,2),
             'VAF%': round(vaf,2), 'Evidence_Type': ev,
-            'Strand_Ratio': sr, 'Status': status
+            'Strand_Ratio': sr, 'Status': status,
+            'Validated_Reads': ",".join(sorted(alt_ids)) if alt_ids else ""
         })
     out_df = pd.DataFrame(final_results)
     out_df.to_csv(output_csv, index=False)
@@ -1209,7 +1210,7 @@ def main():
     donor_dir = os.path.join(args.out_dir, sample_id)
     log_dir = os.path.join(donor_dir, "logs")
     logger = setup_logger(log_dir)
-    logger.info(f"NUMT Pipeline v2 started")
+    logger.info(f"NUMT Pipeline v1.5 started")
     logger.info(f"  Manifest:  {args.manifest}")
     logger.info(f"  Output:    {args.out_dir}")
     logger.info(f"  Donor dir: {donor_dir}")

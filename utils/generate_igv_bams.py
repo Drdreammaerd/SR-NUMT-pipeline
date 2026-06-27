@@ -146,7 +146,7 @@ def classify_read(read):
         
     return "REF"
 
-def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam):
+def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam, validated_reads=None):
     """Extract reads in window and add YC:Z tag."""
     if not os.path.exists(bam_path):
         logger.warning(f"BAM not found: {bam_path}")
@@ -161,13 +161,21 @@ def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam):
         out = pysam.AlignmentFile(out_bam, "wb", header=bam.header)
         
         count = 0
-        tag_counts = {"NUMT_SUPPORT": 0, "STRUCTURAL": 0, "NOISE": 0, "REF": 0}
+        tag_counts = {"NUMT_SUPPORT": 0, "FALSE_POSITIVE": 0, "STRUCTURAL": 0, "NOISE": 0, "REF": 0}
         start = max(0, pos - window)
         end = pos + window
         
         for read in bam.fetch(chrom, start, end):
             # Classify and Tag
             read_class = classify_read(read)
+            
+            if validated_reads is not None:
+                if read.query_name in validated_reads:
+                    read_class = "NUMT_SUPPORT"
+                elif read_class == "NUMT_SUPPORT":
+                    # It looks like support based on flags, but it failed BLAT!
+                    read_class = "FALSE_POSITIVE"
+                    
             read.set_tag("YC", read_class, value_type="Z")
             
             if read_class in tag_counts:
@@ -181,7 +189,7 @@ def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam):
         
         # Index the new BAM
         pysam.index(out_bam)
-        logger.info(f"    Wrote {count} reads ({tag_counts['NUMT_SUPPORT']} NUMT, {tag_counts['STRUCTURAL']} Struct, {tag_counts['NOISE']} Noise) to {os.path.basename(out_bam)}")
+        logger.info(f"    Wrote {count} reads ({tag_counts.get('NUMT_SUPPORT', 0)} NUMT, {tag_counts.get('FALSE_POSITIVE', 0)} FP, {tag_counts.get('STRUCTURAL', 0)} Struct) to {os.path.basename(out_bam)}")
         return True
         
     except Exception as e:
@@ -199,9 +207,27 @@ def main():
     parser.add_argument("--path-prefix-to", help="With this prefix (e.g., /Volumes/jin810-1)")
     parser.add_argument("--numt-id", help="Only process this specific NUMT ID (optional)")
     parser.add_argument("--donor-id", help="Only process samples for this Donor ID (optional)")
+    parser.add_argument("--detail-csv", help="Pipeline v1.5 Replicate_Detail.csv (for perfect IGV Read Matching)")
     
     args = parser.parse_args()
     
+    # 0. Parse Validation Detail CSV if provided
+    validated_dict = {}
+    if args.detail_csv and os.path.exists(args.detail_csv):
+        logger.info(f"Parsing validation details from {args.detail_csv}")
+        df = pd.read_csv(args.detail_csv)
+        if 'Validated_Reads' in df.columns:
+            for _, row in df.iterrows():
+                sv_id = row.get('POP_NUMT_ID', row.get('NUMT_ID', row.get('SV_ID')))
+                tissue = row.get('Tissue')
+                reads_str = str(row.get('Validated_Reads', ''))
+                if reads_str.strip() and reads_str.strip() != 'nan':
+                    key = (sv_id, tissue)
+                    validated_dict[key] = set(reads_str.split(','))
+            logger.info(f"Loaded exact read mappings for {len(validated_dict)} NUMT/Tissue pairs.")
+        else:
+            logger.warning("Detail CSV provided but missing 'Validated_Reads' column. Upgrade to v1.5 Pipeline.")
+            
     # 1. Parse Manifest
     logger.info("Parsing cohort manifest...")
     donor_organ_mapping = parse_cohort_manifest(args.cohort_manifest, args.path_prefix_from, args.path_prefix_to)
@@ -273,7 +299,15 @@ def main():
             for tissue_name, bam_path in bam_list:
                 logger.info(f"  Extracting {tissue_name} (from column {sample})...")
                 out_bam = os.path.join(numt_outdir, f"{tissue_name}.bam")
-                success = extract_subset_bam(bam_path, args.ref, chrom, pos, args.window, out_bam)
+                
+                # Check if we have exact read names for this (sv_id, tissue)
+                val_reads = validated_dict.get((sv_id, tissue_name))
+                if args.detail_csv and val_reads is None:
+                    # Fallback lookup in case sv_id in CSV was un-mapped donor ID
+                    donor = sample.split('_')[0]
+                    val_reads = validated_dict.get((sv_id.replace('POP_', f"{donor}_"), tissue_name))
+                
+                success = extract_subset_bam(bam_path, args.ref, chrom, pos, args.window, out_bam, val_reads)
                 if success:
                     manifest_rows.append({
                         'NUMT_ID': sv_id,
