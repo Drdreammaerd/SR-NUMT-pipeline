@@ -161,7 +161,7 @@ def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam, validat
         out = pysam.AlignmentFile(out_bam, "wb", header=bam.header)
         
         count = 0
-        tag_counts = {"NUMT_SUPPORT": 0, "FALSE_POSITIVE": 0, "STRUCTURAL": 0, "NOISE": 0, "REF": 0}
+        tag_counts = {"NUMT_SUPPORT": 0, "STRUCTURAL": 0, "NOISE": 0, "REF": 0}
         start = max(0, pos - window)
         end = pos + window
         
@@ -174,7 +174,7 @@ def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam, validat
                     read_class = "NUMT_SUPPORT"
                 elif read_class == "NUMT_SUPPORT":
                     # It looks like support based on flags, but it failed BLAT!
-                    read_class = "FALSE_POSITIVE"
+                    read_class = "NOISE"
                     
             read.set_tag("YC", read_class, value_type="Z")
             
@@ -189,7 +189,7 @@ def extract_subset_bam(bam_path, ref_fasta, chrom, pos, window, out_bam, validat
         
         # Index the new BAM
         pysam.index(out_bam)
-        logger.info(f"    Wrote {count} reads ({tag_counts.get('NUMT_SUPPORT', 0)} NUMT, {tag_counts.get('FALSE_POSITIVE', 0)} FP, {tag_counts.get('STRUCTURAL', 0)} Struct) to {os.path.basename(out_bam)}")
+        logger.info(f"    Wrote {count} reads ({tag_counts.get('NUMT_SUPPORT', 0)} NUMT, {tag_counts.get('NOISE', 0)} Noise, {tag_counts.get('STRUCTURAL', 0)} Struct) to {os.path.basename(out_bam)}")
         return True
         
     except Exception as e:

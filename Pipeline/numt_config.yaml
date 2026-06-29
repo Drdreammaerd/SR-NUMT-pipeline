@@ -1,0 +1,42 @@
+# ============================================================
+# NUMT Pipeline Configuration (Unified Snakemake)
+# ============================================================
+# Used by: numt_pipeline.smk
+# All paths should be CLUSTER paths (accessible inside Docker via mounts)
+# ============================================================
+
+# Input: sample sheet (SampleID, Cohort, CRAM_Dir, Mode)
+sample_sheet: "Pipeline/sample_sheet.tsv"
+
+# Output base directory — all results go under here
+output_base: "/storage1/fs1/jin810/Active/testing/yung-chun/AI-develop/SMAHT_DONOR_NUMT"
+scratch_dir: "/scratch1/fs1/jin810/numt_scratch"
+
+# Pipeline scripts directory (inside Docker image)
+pipeline_dir: "/opt/numt-pipeline"
+
+# Unified Docker image
+docker_image: "dreammaerd/numt-pipeline:v1.5"
+
+# ---- References (mounted from cluster storage) ----
+# Used by: split_bam, run_dinumt_split
+ref_fasta: "/storage2/fs1/epigenome/Active/shared_smaht/References/SMAHT_References/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa"
+# Used by: validate_donor, build_catalog (pysam read extraction)
+ref_validation: "/storage2/fs1/epigenome/Active/shared_smaht/References/SMAHT_References/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa"
+
+# ---- Tools bundled inside Docker ----
+# BLAT binary (installed via ucsc-blat conda package)
+blat_bin: "/opt/conda/bin/blat"
+# chrM reference for BLAT validation (copied into Docker image)
+mito_ref: "/opt/numt-pipeline/Reference/chrM.fa"
+# Custom dinumt script (our modified version, bundled in Docker)
+dinumt_script: "/opt/numt-pipeline/Custom_Tools/dinumt_AllNumts_optimized.pl"
+# dinumt mask file (on cluster storage)
+dinumt_mask: "/opt/numt-pipeline/Custom_Tools/refNumts.38.bed"
+
+# Helper scripts (bundled in Docker)
+scripts_dir: "/opt/numt-pipeline/helpers"
+
+# Stage 1 & 2 options
+skip_rescue: false
+palmer_dir: "/storage1/fs1/jin810/Active/testing/vivien/palmer_calls"

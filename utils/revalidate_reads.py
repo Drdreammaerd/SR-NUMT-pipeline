@@ -6,12 +6,20 @@ import argparse
 import pandas as pd
 import pysam
 
-# Add Pipeline dir to path so we can import modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Pipeline')))
-from utils.utils import run_cmd
-from utils.blat_wrapper import run_blat_step
-from utils.numt_utils import generate_numt_fasta
-from sdv import run_numt_final_validator
+# Load Pipeline functions using importlib
+import importlib.util
+pipeline_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Pipeline'))
+spec = importlib.util.spec_from_file_location(
+    "single_donor_validator",
+    os.path.join(pipeline_dir, "2_single_donor_validator.py")
+)
+sdv = importlib.util.module_from_spec(spec)
+sys.modules["single_donor_validator"] = sdv
+spec.loader.exec_module(sdv)
+
+generate_numt_fasta = sdv.generate_numt_fasta
+run_blat_step = sdv.run_blat_step
+run_numt_final_validator = sdv.run_numt_final_validator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -19,10 +27,11 @@ logger = logging.getLogger(__name__)
 def parse_cohort_manifest(manifest_path, prefix_from=None, prefix_to=None):
     """Returns mapping of (Donor) -> [(Tissue, BAM_Path)]"""
     df = pd.read_csv(manifest_path, sep='\t')
+    df.columns = [c.lstrip('#').strip() for c in df.columns]
     donor_mapping = {}
     for _, row in df.iterrows():
-        donor = row['Donor']
-        path = row['Manifest_Path']
+        donor = row['DonorID']
+        path = row['Manifest']
         if prefix_from and prefix_to:
             path = path.replace(prefix_from, prefix_to)
         
@@ -31,9 +40,15 @@ def parse_cohort_manifest(manifest_path, prefix_from=None, prefix_to=None):
             continue
             
         mdf = pd.read_csv(path, sep='\t')
+        first_col = mdf.columns[0]
+        if first_col == '#' or first_col.startswith('#'):
+            mdf = mdf.drop(columns=[first_col])
+            
+        mdf = mdf.rename(columns={'TISSUE': 'Tissue', 'FULL_BAM_PATH': 'BAM_Path'})
+        
         bams = []
         for _, mrow in mdf.iterrows():
-            tissue = mrow.get('Tissue', mrow.get('Organ'))
+            tissue = mrow['Tissue']
             bpath = mrow['BAM_Path']
             if prefix_from and prefix_to:
                 bpath = bpath.replace(prefix_from, prefix_to)
@@ -92,10 +107,10 @@ def main():
         with pysam.VariantFile(tmp_vcf, 'w', header=vcf.header) as out_vcf:
             out_vcf.write(record)
             
-        for sample in samples:
+        for sample in record.samples:
             if args.donor_id and not sample.startswith(args.donor_id):
                 continue
-                
+            
             gt = record.samples[sample].get('GT', (0, 0))
             if gt and (1 in gt) and sample in vcf_col_to_bams:
                 bam_list = vcf_col_to_bams[sample]

@@ -8,13 +8,13 @@
 #   Stage 2: python, pysam, pandas, blat (population catalog)
 #
 # Build (from repo root):
-#   docker build -platform linux/amd64 -f Docker/Dockerfile -t dreammaerd/numt-pipeline:v1.4 .
+#   docker build -platform linux/amd64 -f Docker/Dockerfile -t dreammaerd/numt-pipeline:v1.5 .
 #
 # Push:
-#   docker push dreammaerd/numt-pipeline:v1.4
+#   docker push dreammaerd/numt-pipeline:v1.5
 #
 # Verify:
-#   docker run --rm dreammaerd/numt-pipeline:v1.4 bash -c \
+#   docker run --rm dreammaerd/numt-pipeline:v1.5 bash -c \
 #     "samtools --version | head -1 && \
 #      python -c 'import pysam; print(f\"pysam {pysam.__version__}\")' && \
 #      blat 2>&1 | head -1 && \
@@ -109,6 +109,10 @@ COPY Pipeline/3_build_population_catalog.py /opt/numt-pipeline/
 # Snakemake workflow
 COPY Pipeline/numt_pipeline.smk /opt/numt-pipeline/
 COPY Pipeline/numt_config.yaml  /opt/numt-pipeline/
+
+# IGV Utilities
+COPY utils/ /opt/numt-pipeline/utils/
+RUN chmod +x /opt/numt-pipeline/utils/*.py 2>/dev/null || true
 
 # Fix permissions so LSF user can read and execute scripts
 RUN chmod -R a+rX /opt/numt-pipeline
